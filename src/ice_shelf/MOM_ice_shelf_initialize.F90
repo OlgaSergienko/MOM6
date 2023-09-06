@@ -22,6 +22,7 @@ public initialize_ice_flow_from_file
 public initialize_ice_shelf_boundary_from_file
 public initialize_ice_C_basal_friction
 public initialize_ice_AGlen
+public initialize_ice_bed_elevation
 ! A note on unit descriptions in comments: MOM6 uses units that can be rescaled for dimensional
 ! consistency testing. These are noted in comments with units like Z, H, L, and T, along with
 ! their mks counterparts with notation like "a velocity [Z T-1 ~> m s-1]".  If the units
@@ -390,13 +391,15 @@ end subroutine initialize_ice_shelf_boundary_channel
 
 
 !> Initialize ice shelf flow from file
-subroutine initialize_ice_flow_from_file(bed_elev,u_shelf, v_shelf,float_cond,&
+subroutine initialize_ice_flow_from_file(u_shelf, v_shelf,float_cond,&
                                          G, US, PF)
+!subroutine initialize_ice_flow_from_file(bed_elev,u_shelf, v_shelf,float_cond,&
+!                                         G, US, PF)
 !subroutine initialize_ice_flow_from_file(bed_elev,u_shelf, v_shelf,float_cond,ice_visc,&
 !                                         G, US, PF)
   type(ocean_grid_type), intent(in)    :: G    !< The ocean's grid structure
-  real, dimension(SZDI_(G),SZDJ_(G)), &
-                         intent(inout) :: bed_elev !< The bed elevation   [Z ~> m].
+!  real, dimension(SZDI_(G),SZDJ_(G)), &
+!                         intent(inout) :: bed_elev !< The bed elevation   [Z ~> m].
   real, dimension(SZIB_(G),SZJB_(G)), &
                          intent(inout) :: u_shelf !< The zonal ice shelf velocity  [L T-1 ~> m s-1].
   real, dimension(SZIB_(G),SZJB_(G)), &
@@ -409,9 +412,9 @@ subroutine initialize_ice_flow_from_file(bed_elev,u_shelf, v_shelf,float_cond,&
 
   !  This subroutine reads ice thickness and area from a file and puts it into
   !  h_shelf [Z ~> m] and area_shelf_h [L2 ~> m2] (and dimensionless) and updates hmask
-  character(len=200) :: filename,vel_file,inputdir,bed_topo_file ! Strings for file/path
+  character(len=200) :: filename,vel_file,inputdir,i!bed_topo_file ! Strings for file/path
   character(len=200) :: ushelf_varname, vshelf_varname, &
-                        ice_visc_varname, floatfr_varname, bed_varname  ! Variable name in file
+                        ice_visc_varname, floatfr_varname!, bed_varname  ! Variable name in file
   character(len=40)  :: mdl = "initialize_ice_velocity_from_file" ! This subroutine's name.
   real :: len_sidestress
 
@@ -437,12 +440,12 @@ subroutine initialize_ice_flow_from_file(bed_elev,u_shelf, v_shelf,float_cond,&
   call get_param(PF, mdl, "ICE_VISC_VARNAME", ice_visc_varname, &
                  "The name of the thickness variable in ICE_VELOCITY_FILE.", &
                  default="viscosity")
-  call get_param(PF, mdl, "BED_TOPO_FILE", bed_topo_file, &
-                 "The file from which the bed elevation is read.", &
-                 default="ice_shelf_vel.nc")
-  call get_param(PF, mdl, "BED_TOPO_VARNAME", bed_varname, &
-                 "The name of the thickness variable in ICE_INPUT_FILE.", &
-                 default="depth")
+!  call get_param(PF, mdl, "BED_TOPO_FILE", bed_topo_file, &
+!                 "The file from which the bed elevation is read.", &
+!                 default="ice_shelf_vel.nc")
+!  call get_param(PF, mdl, "BED_TOPO_VARNAME", bed_varname, &
+!                 "The name of the thickness variable in ICE_INPUT_FILE.", &
+!                 default="depth")
   if (.not.file_exists(filename, G%Domain)) call MOM_error(FATAL, &
        " initialize_ice_shelf_velocity_from_file: Unable to open "//trim(filename))
 
@@ -452,8 +455,8 @@ subroutine initialize_ice_flow_from_file(bed_elev,u_shelf, v_shelf,float_cond,&
   call MOM_read_data(filename, trim(vshelf_varname), v_shelf, G%Domain, position=CORNER, scale=US%m_s_to_L_T)
   call MOM_read_data(filename, trim(floatfr_varname), float_cond, G%Domain, scale=1.)
 
-  filename = trim(inputdir)//trim(bed_topo_file)
-  call MOM_read_data(filename,trim(bed_varname), bed_elev, G%Domain, scale=1.0)
+!  filename = trim(inputdir)//trim(bed_topo_file)
+!  call MOM_read_data(filename,trim(bed_varname), bed_elev, G%Domain, scale=1.0)
 
 
 end subroutine initialize_ice_flow_from_file
@@ -656,5 +659,34 @@ subroutine initialize_ice_AGlen(AGlen, G, US, PF)
     call MOM_read_data(filename,trim(varname), AGlen, G%Domain)
 
   endif
+end subroutine
+
+!> Initialize bed elevation B
+subroutine initialize_ice_bed_elevation(bed_elev, G, US, PF)
+  type(ocean_grid_type), intent(in)    :: G    !< The ocean's grid structure
+  real, dimension(SZDI_(G),SZDJ_(G)), &
+                         intent(inout) :: bed_elev !< The bed elevation under the ice sheet [m]
+  type(unit_scale_type), intent(in)    :: US !< A structure containing unit conversion factors
+  type(param_file_type), intent(in)    :: PF !< A structure to parse for run-time parameters
+
+  real :: A_Glen  ! Ice-stiffness parameter, often in [Pa-3 s-1]
+  character(len=40)  :: mdl = "initialize_ice_bed_elev" ! This subroutine's name.
+  character(len=200) :: config
+  character(len=200) :: bed_varname
+  character(len=200) :: inputdir, filename, bed_topo_file
+
+  call get_param(PF, mdl, "INPUTDIR", inputdir, default=".")
+  inputdir = slasher(inputdir)
+  call get_param(PF, mdl, "BED_TOPO_FILE", bed_topo_file, &
+                 "The file from which the bed elevation is read.", &
+                 default="IS_input.nc")
+  call get_param(PF, mdl, "BED_TOPO_VARNAME", bed_varname, &
+                 "The name of the bed elevation variable in BED_TOPO_FILE.", &
+                 default="bed_elev")
+  filename = trim(inputdir)//trim(bed_topo_file)
+  if (.not.file_exists(filename, G%Domain)) call MOM_error(FATAL, &
+       " initialize_ice_bed_elevation_from_file: Unable to open "//trim(filename))
+  call MOM_read_data(filename,trim(bed_varname), bed_elev, G%Domain, scale=1.0)
+
 end subroutine
 end module MOM_ice_shelf_initialize

@@ -25,7 +25,7 @@ use MOM_coms, only : reproducing_sum, sum_across_PEs, max_across_PEs, min_across
 use MOM_checksums, only : hchksum, qchksum
 use MOM_ice_shelf_initialize, only : initialize_ice_shelf_boundary_channel,initialize_ice_flow_from_file
 use MOM_ice_shelf_initialize, only : initialize_ice_shelf_boundary_from_file,initialize_ice_C_basal_friction
-use MOM_ice_shelf_initialize, only : initialize_ice_AGlen
+use MOM_ice_shelf_initialize, only : initialize_ice_AGlen, initialize_ice_bed_elevation
 implicit none ; private
 
 #include <MOM_memory.h>
@@ -310,6 +310,8 @@ subroutine register_ice_shelf_dyn_restarts(G, US, param_file, CS, restart_CS)
                                 "ice-stiffness parameter", "Pa-3 s-1")
     call register_restart_field(CS%h_bdry_val, "h_bdry_val", .false., restart_CS, &
                                 "ice thickness at the boundary", "m", conversion=US%Z_to_m)
+    call register_restart_field(CS%bed_elev, "bed_elev", .false., restart_CS, &
+                                "bed elevation", "m", conversion=US%Z_to_m)
   endif
 
 end subroutine register_ice_shelf_dyn_restarts
@@ -481,7 +483,7 @@ subroutine initialize_ice_shelf_dyn(param_file, Time, ISS, CS, G, US, diag, new_
 
   ! Take additional initialization steps, for example of dependent variables.
   if (active_shelf_dynamics .and. .not.new_sim) then
-
+      call initialize_ice_bed_elevation(CS%bed_elev, G, US, param_file)
     ! this is unfortunately necessary; if grid is not symmetric the boundary values
     !  of u and v are otherwise not set till the end of the first linear solve, and so
     !  viscosity is not calculated correctly.
@@ -504,12 +506,31 @@ subroutine initialize_ice_shelf_dyn(param_file, Time, ISS, CS, G, US, diag, new_
       enddo ; enddo
     endif
 
-    call pass_var(CS%OD_av,G%domain)
-    call pass_var(CS%ground_frac,G%domain)
-    call pass_var(CS%ice_visc,G%domain)
-    call pass_var(CS%basal_traction, G%domain)
-    call pass_var(CS%AGlen_visc, G%domain)
-    call pass_vector(CS%u_shelf, CS%v_shelf, G%domain, TO_ALL, BGRID_NE)
+
+    call pass_var(CS%OD_av,G%domain, complete=.false.)
+    call pass_var(CS%ground_frac,G%domain, complete=.false.)
+    call pass_var(CS%ice_visc,G%domain, complete=.false.)
+    call pass_var(CS%basal_traction, G%domain, complete=.false.)
+    call pass_var(CS%AGlen_visc, G%domain, complete=.false.)
+    call pass_var(CS%bed_elev, G%domain, complete=.false.)
+    call pass_var(CS%C_basal_friction, G%domain, complete=.false.)
+    call pass_var(CS%h_bdry_val, G%domain, complete=.false.)
+    call pass_var(CS%thickness_bdry_val, G%domain, complete=.true.)
+
+    call pass_vector(CS%u_shelf, CS%v_shelf, G%domain, TO_ALL, BGRID_NE, complete=.false.)
+    call pass_vector(CS%u_bdry_val, CS%v_bdry_val, G%domain, TO_ALL, BGRID_NE, complete=.false.)
+    call pass_vector(CS%u_face_mask_bdry, CS%v_face_mask_bdry, G%domain, TO_ALL, BGRID_NE, complete=.true.)
+    call update_velocity_masks(CS, G, ISS%hmask, CS%umask, CS%vmask, CS%u_face_mask, CS%v_face_mask)
+!    call pass_var(CS%OD_av,G%domain)
+!    call pass_var(CS%ground_frac,G%domain)
+!    call pass_var(CS%ice_visc,G%domain)
+!    call pass_var(CS%basal_traction, G%domain)
+!    call pass_var(CS%AGlen_visc, G%domain)
+!    call pass_var(CS%bed_elev, G%domain)
+!    call pass_vector(CS%u_shelf, CS%v_shelf, G%domain, TO_ALL, BGRID_NE)
+!    call pass_vector(CS%u_bdry_val, CS%v_bdry_val, G%domain, TO_ALL, BGRID_NE, complete=.false.)
+!    call pass_vector(CS%u_face_mask_bdry, CS%v_face_mask_bdry, G%domain, TO_ALL, BGRID_NE, complete=.true.)
+!    call update_velocity_masks(CS, G, ISS%hmask, CS%umask, CS%vmask, CS%u_face_mask, CS%v_face_mask)
   endif
 
   if (active_shelf_dynamics) then
@@ -541,27 +562,31 @@ subroutine initialize_ice_shelf_dyn(param_file, Time, ISS, CS, G, US, diag, new_
     ! initialize basal friction coefficients
     if (new_sim) then
       call initialize_ice_C_basal_friction(CS%C_basal_friction, G, US, param_file)
-      call pass_var(CS%C_basal_friction, G%domain)
+      call pass_var(CS%C_basal_friction, G%domain, complete=.false.)
 
       ! initialize ice-stiffness AGlen
       call initialize_ice_AGlen(CS%AGlen_visc, G, US, param_file)
-      call pass_var(CS%AGlen_visc, G%domain)
+      call pass_var(CS%AGlen_visc, G%domain, complete=.false.)
 
       !initialize boundary conditions
       call initialize_ice_shelf_boundary_from_file(CS%u_face_mask_bdry, CS%v_face_mask_bdry, &
                   CS%u_bdry_val, CS%v_bdry_val, CS%umask, CS%vmask, CS%h_bdry_val, &
                   CS%thickness_bdry_val, ISS%hmask,  ISS%h_shelf, G, US, param_file )
-      call pass_var(ISS%hmask, G%domain)
-      call pass_var(CS%h_bdry_val, G%domain)
-      call pass_var(CS%thickness_bdry_val, G%domain)
-      call pass_vector(CS%u_bdry_val, CS%v_bdry_val, G%domain, TO_ALL, BGRID_NE)
-      call pass_vector(CS%u_face_mask_bdry, CS%v_face_mask_bdry, G%domain, TO_ALL, BGRID_NE)
+      call pass_var(ISS%hmask, G%domain, complete=.false.)
+      call pass_var(CS%h_bdry_val, G%domain, complete=.false.)
+      call pass_var(CS%thickness_bdry_val, G%domain, complete=.true.)
+      call pass_vector(CS%u_bdry_val, CS%v_bdry_val, G%domain, TO_ALL, BGRID_NE, complete=.false.)
+      call pass_vector(CS%u_face_mask_bdry, CS%v_face_mask_bdry, G%domain, TO_ALL, BGRID_NE, complete=.false.)
 
       !initialize ice flow characteristic (velocities, bed elevation under the grounded part, etc) from file
-      call initialize_ice_flow_from_file(CS%bed_elev,CS%u_shelf, CS%v_shelf, CS%ground_frac, &
+!      call initialize_ice_flow_from_file(CS%bed_elev,CS%u_shelf, CS%v_shelf, CS%ground_frac, &
+!                  G, US, param_file)
+      call initialize_ice_flow_from_file(CS%u_shelf, CS%v_shelf, CS%ground_frac, &
                   G, US, param_file)
-      call pass_vector(CS%u_shelf, CS%v_shelf, G%domain, TO_ALL, BGRID_NE)
-      call pass_var(CS%bed_elev, G%domain,CENTER)
+      call pass_vector(CS%u_shelf, CS%v_shelf, G%domain, TO_ALL, BGRID_NE, complete=.true.)
+      call pass_var(CS%ground_frac,G%domain, complete=.false.)
+      call initialize_ice_bed_elevation(CS%bed_elev, G, US, param_file )
+      call pass_var(CS%bed_elev, G%domain, complete=.true.)
       call update_velocity_masks(CS, G, ISS%hmask, CS%umask, CS%vmask, CS%u_face_mask, CS%v_face_mask)
     endif
   ! Register diagnostics.
