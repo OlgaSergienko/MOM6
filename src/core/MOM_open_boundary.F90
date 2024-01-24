@@ -854,7 +854,7 @@ subroutine initialize_segment_data(G, GV, US, OBC, PF)
 !       if (siz(4) == 1) segment%values_needed = .false.
         if (segment%on_pe) then
           if (OBC%brushcutter_mode .and. (modulo(siz(1),2) == 0 .or. modulo(siz(2),2) == 0)) then
-            write(mesg,'("Brushcutter mode sizes ", I6, I6))') siz(1), siz(2)
+            write(mesg,'("Brushcutter mode sizes ", I6, I6)') siz(1), siz(2)
             call MOM_error(WARNING, mesg // " " // trim(filename) // " " // trim(fieldname))
             call MOM_error(FATAL,'segment data are not on the supergrid')
           endif
@@ -3919,7 +3919,7 @@ subroutine update_OBC_segment_data(G, GV, US, OBC, tv, h, Time)
           segment%Htot(I,j) = segment%Htot(I,j) + segment%h(I,j,k)
           segment%dZtot(I,j) = segment%dZtot(I,j) + dz(i+ishift,j,k)
         enddo
-        segment%Cg(I,j) = sqrt(GV%g_prime(1) * segment%dZtot(I,j))
+        segment%Cg(I,j) = sqrt(GV%g_prime(1) * max(0.0, segment%dZtot(I,j)))
       enddo
     else! (segment%direction == OBC_DIRECTION_N .or. segment%direction == OBC_DIRECTION_S)
       allocate(normal_trans_bt(segment%HI%isd:segment%HI%ied,segment%HI%JsdB:segment%HI%JedB), source=0.0)
@@ -3933,7 +3933,7 @@ subroutine update_OBC_segment_data(G, GV, US, OBC, tv, h, Time)
           segment%Htot(i,J) = segment%Htot(i,J) + segment%h(i,J,k)
           segment%dZtot(i,J) = segment%dZtot(i,J) + dz(i,j+jshift,k)
         enddo
-        segment%Cg(i,J) = sqrt(GV%g_prime(1) * segment%dZtot(i,J))
+        segment%Cg(i,J) = sqrt(GV%g_prime(1) * max(0.0, segment%dZtot(i,J)))
       enddo
     endif
 
