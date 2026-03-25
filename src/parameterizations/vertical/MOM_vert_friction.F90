@@ -1,7 +1,10 @@
+! This file is part of MOM6, the Modular Ocean Model version 6.
+! See the LICENSE file for licensing information.
+! SPDX-License-Identifier: Apache-2.0
+
 !> Implements vertical viscosity (vertvisc)
 module MOM_vert_friction
 
-! This file is part of MOM6. See LICENSE.md for the license.
 use MOM_domains,       only : pass_var, To_All, Omit_corners
 use MOM_domains,       only : pass_vector, Scalar_Pair
 use MOM_diag_mediator, only : post_data, register_diag_field, safe_alloc_ptr
@@ -21,7 +24,7 @@ use MOM_open_boundary, only : ocean_OBC_type, OBC_NONE, OBC_DIRECTION_E
 use MOM_open_boundary, only : OBC_DIRECTION_W, OBC_DIRECTION_N, OBC_DIRECTION_S
 use MOM_PointAccel,    only : write_u_accel, write_v_accel, PointAccel_init
 use MOM_PointAccel,    only : PointAccel_CS
-use MOM_time_manager,  only : time_type, time_type_to_real, operator(-)
+use MOM_time_manager,  only : time_type, time_minus_signed
 use MOM_unit_scaling,  only : unit_scale_type
 use MOM_variables,     only : thermo_var_ptrs, vertvisc_type
 use MOM_variables,     only : cont_diag_ptrs, accel_diag_ptrs
@@ -247,7 +250,7 @@ subroutine vertFPmix(ui, vi, uold, vold, hbl_h, h, forces, dt, lpost, Cemp_NL, G
   real :: Gat1, Gsig, dGdsig !< Shape parameters [nondim]
   real :: du, dv       !< Intermediate velocity differences [L T-1 ~> m s-1]
   real :: depth        !< Cumulative of thicknesses [H ~> m]
-  integer :: b, kbld, kp1, k, nz !< band and vertical indices
+  integer :: b, kp1, k, nz !< band and vertical indices
   integer :: i, j, is, ie, js, je, Isq, Ieq, Jsq, Jeq !< horizontal indices
 
   is = G%isc ; ie = G%iec; js = G%jsc; je = G%jec
@@ -637,8 +640,7 @@ subroutine vertvisc(u, v, h, forces, visc, dt, OBC, ADp, CDp, G, GV, US, CS, &
   if (CS%StokesMixing) then
     if (present(Waves)) DoStokesMixing = associated(Waves)
     if (.not. DoStokesMixing) &
-      call MOM_error(FATAL,"Stokes Mixing called without allocated"//&
-                     "Waves Control Structure")
+      call MOM_error(FATAL, "Stokes Mixing called without associated Waves Control Structure")
   endif
   lfpmix = .false.
   if ( present(fpmix) ) lfpmix = fpmix
@@ -753,6 +755,9 @@ subroutine vertvisc(u, v, h, forces, visc, dt, OBC, ADp, CDp, G, GV, US, CS, &
         ADp%du_dt_str(I,j,k) = (CS%h_u(I,j,k) * ADp%du_dt_str(I,j,k) &
             + dt * CS%a_u(I,j,K) * ADp%du_dt_str(I,j,k-1)) * b1
       endif
+
+      !### Force FMA evaluation of b1 by blocking lookahead with an impossible branch.
+      if (dt < 0) exit
     enddo
 
     if (associated(ADp%du_dt_str)) then
@@ -944,6 +949,9 @@ subroutine vertvisc(u, v, h, forces, visc, dt, OBC, ADp, CDp, G, GV, US, CS, &
         ADp%dv_dt_str(i,J,k) = (CS%h_v(i,J,k) * ADp%dv_dt_str(i,J,k) &
             + dt * CS%a_v(i,J,K) * ADp%dv_dt_str(i,J,k-1)) * b1
       endif
+
+      !### Force FMA evaluation of b1 by blocking lookahead with an impossible branch.
+      if (dt < 0) exit
     enddo
 
     if (associated(ADp%dv_dt_str)) then
@@ -1206,6 +1214,9 @@ subroutine vertvisc_remnant(visc, visc_rem_u, visc_rem_v, dt, G, GV, US, CS)
       b1 = 1.0 / (b_denom_1 + dt * CS%a_u(I,j,K+1))
       d1 = b_denom_1 * b1
       visc_rem_u(I,j,k) = (CS%h_u(I,j,k) + dt * CS%a_u(I,j,K) * visc_rem_u(I,j,k-1)) * b1
+
+      !### Force FMA evaluation of b1 by blocking lookahead with an impossible branch.
+      if (dt < 0) exit
     enddo
 
     do k=nz-1,1,-1
@@ -1232,6 +1243,9 @@ subroutine vertvisc_remnant(visc, visc_rem_u, visc_rem_v, dt, G, GV, US, CS)
       b1 = 1.0 / (b_denom_1 + dt * CS%a_v(i,J,K+1))
       d1 = b_denom_1 * b1
       visc_rem_v(i,J,k) = (CS%h_v(i,J,k) + dt * CS%a_v(i,J,K) * visc_rem_v(i,J,k-1)) * b1
+
+      !### Force FMA evaluation of b1 by blocking lookahead with an impossible branch.
+      if (dt < 0) exit
     enddo
 
     do k=nz-1,1,-1
@@ -1347,7 +1361,7 @@ subroutine vertvisc_coef(u, v, h, dz, forces, visc, tv, dt, G, GV, US, CS, OBC, 
   logical :: do_any_shelf
   integer :: zi_dir
     ! A ternary logical indicating which thickness to use for finding z_clear.
-  integer :: i, j, k, is, ie, js, je, Isq, Ieq, Jsq, Jeq, nz, ij
+  integer :: i, j, k, is, ie, js, je, Isq, Ieq, Jsq, Jeq, nz
 
   is = G%isc ; ie = G%iec ; js = G%jsc ; je = G%jec
   Isq = G%IscB ; Ieq = G%IecB ; Jsq = G%JscB ; Jeq = G%JecB ; nz = GV%ke
@@ -2423,7 +2437,7 @@ subroutine find_coupling_coef(a_cpl, hvel, i, j, h_harm, bbl_thick, kv_bbl, z_i,
       enddo
     elseif (CS%fixed_LOTW_ML .or. CS%apply_LOTW_floor) then
       ! Determine which interfaces are within CS%Hmix of the surface, and set the viscous
-      ! boundary layer thickness to the the smaller of CS%Hmix and the depth of the ocean.
+      ! boundary layer thickness to the smaller of CS%Hmix and the depth of the ocean.
       h_ml = 0.0
       do k=1,nz
         can_exit = .true.
@@ -3207,7 +3221,7 @@ subroutine updateCFLtruncationValue(Time, CS, US, activate)
     endif
   endif
   if (.not.CS%CFLrampingIsActivated) return
-  deltaTime = max( 0., US%s_to_T*time_type_to_real( Time - CS%rampStartTime ) )
+  deltaTime = max(0., US%s_to_T * time_minus_signed(Time, CS%rampStartTime))
   if (deltaTime >= CS%truncRampTime) then
     CS%CFL_trunc = CS%CFL_truncE
     CS%truncRampTime = 0. ! This turns off ramping after this call
@@ -3219,8 +3233,7 @@ subroutine updateCFLtruncationValue(Time, CS, US, activate)
     CS%CFL_trunc = CS%CFL_truncS + wghtA * ( CS%CFL_truncE - CS%CFL_truncS )
   endif
   write(msg(1:12),'(es12.3)') CS%CFL_trunc
-  call MOM_error(NOTE, "MOM_vert_friction: updateCFLtruncationValue set CFL"// &
-                       " limit to "//trim(msg))
+  call MOM_error(NOTE, "MOM_vert_friction: updateCFLtruncationValue set CFL limit to "//trim(msg))
 end subroutine updateCFLtruncationValue
 
 !> Clean up and deallocate the vertical friction module

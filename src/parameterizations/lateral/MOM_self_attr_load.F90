@@ -1,3 +1,7 @@
+! This file is part of MOM6, the Modular Ocean Model version 6.
+! See the LICENSE file for licensing information.
+! SPDX-License-Identifier: Apache-2.0
+
 module MOM_self_attr_load
 
 use MOM_cpu_clock,           only : cpu_clock_id, cpu_clock_begin, cpu_clock_end, CLOCK_MODULE
@@ -38,7 +42,7 @@ type, public :: SAL_CS ; private
   real :: eta_prop
     !< The partial derivative of eta_sal with the local value of eta [nondim].
   real :: linear_scaling
-    !< Dimensional coefficients for scalar SAL [nondim or Z T2 L-2 R-1 ~> m Pa-1]
+    !< Dimensional coefficients for scalar SAL [nondim] or [Z T2 L-2 R-1 ~> m Pa-1]
   type(sht_CS), allocatable :: sht
     !< Spherical harmonic transforms (SHT) control structure
   integer :: sal_sht_Nd

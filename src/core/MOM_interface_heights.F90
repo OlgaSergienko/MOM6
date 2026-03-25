@@ -1,7 +1,9 @@
+! This file is part of MOM6, the Modular Ocean Model version 6.
+! See the LICENSE file for licensing information.
+! SPDX-License-Identifier: Apache-2.0
+
 !> Functions for calculating interface heights, including free surface height.
 module MOM_interface_heights
-
-! This file is part of MOM6. See LICENSE.md for the license.
 
 use MOM_density_integrals, only : int_specific_vol_dp, avg_specific_vol, int_density_dz
 use MOM_debugging,     only : hchksum
@@ -480,7 +482,7 @@ subroutine find_rho_bottom(G, GV, US, tv, h, dz, pres_int, dz_avg, j, Rho_bot, h
   ! Local variables
   real :: hb(SZI_(G))         ! Running sum of the thickness in the bottom boundary layer [H ~> m or kg m-2]
   real :: SpV_h_bot(SZI_(G))  ! Running sum of the specific volume times thickness in the bottom
-                              ! boundary layer [R-1 H ~> m4 kg-1 or m]
+                              ! boundary layer [H R-1 ~> m4 kg-1 or m]
   real :: dz_bbl_rem(SZI_(G)) ! Vertical extent of the boundary layer that has yet to be accounted
                               ! for [Z ~> m]
   real :: h_bbl_frac(SZI_(G)) ! Thickness of the fractional layer that makes up the top of the

@@ -1,7 +1,9 @@
+! This file is part of MOM6, the Modular Ocean Model version 6.
+! See the LICENSE file for licensing information.
+! SPDX-License-Identifier: Apache-2.0
+
 !> \brief Parameterization of mixed layer restratification by unresolved mixed-layer eddies.
 module MOM_mixed_layer_restrat
-
-! This file is part of MOM6. See LICENSE.md for the license.
 
 use MOM_debugging,     only : hchksum
 use MOM_diag_mediator, only : post_data, query_averaging_enabled, diag_ctrl
@@ -227,8 +229,8 @@ subroutine mixedlayer_restrat_OM4(h, uhtr, vhtr, tv, forces, dt, h_MLD, VarMix, 
   real :: g_Rho0          ! G_Earth/Rho0 times a thickness conversion factor
                           ! [L2 H-1 T-2 R-1 ~> m4 s-2 kg-1 or m7 s-2 kg-2]
   real :: rho_ml(SZI_(G)) ! Potential density relative to the surface [R ~> kg m-3]
-  real :: rml_int_fast(SZI_(G)) ! The integral of density over the mixed layer depth [R H ~> kg m-2 or kg2 m-3]
-  real :: rml_int_slow(SZI_(G)) ! The integral of density over the mixed layer depth [R H ~> kg m-2 or kg2 m-3]
+  real :: rml_int_fast(SZI_(G)) ! The integral of density over the mixed layer depth [R H ~> kg m-2 or kg2 m-5]
+  real :: rml_int_slow(SZI_(G)) ! The integral of density over the mixed layer depth [R H ~> kg m-2 or kg2 m-5]
   real :: SpV_ml(SZI_(G)) ! Specific volume evaluated at the surface pressure [R-1 ~> m3 kg-1]
   real :: SpV_int_fast(SZI_(G)) ! Specific volume integrated through the mixed layer [H R-1 ~> m4 kg-1 or m]
   real :: SpV_int_slow(SZI_(G)) ! Specific volume integrated through the mixed layer [H R-1 ~> m4 kg-1 or m]
@@ -243,7 +245,7 @@ subroutine mixedlayer_restrat_OM4(h, uhtr, vhtr, tv, forces, dt, h_MLD, VarMix, 
   real :: h_min           ! The minimum layer thickness [H ~> m or kg m-2].  h_min could be 0.
   real :: h_neglect       ! tiny thickness usually lost in roundoff so can be neglected [H ~> m or kg m-2]
   real :: I4dt            ! 1/(4 dt) [T-1 ~> s-1]
-  real :: Ihtot,Ihtot_slow! Inverses of the total mixed layer thickness [H-1 ~> m-1 or m2 kg-1]
+  real :: Ihtot, Ihtot_slow ! Inverses of the total mixed layer thickness [H-1 ~> m-1 or m2 kg-1]
   real :: a(SZK_(GV))     ! A non-dimensional value relating the overall flux
                           ! magnitudes (uDml & vDml) to the realized flux in a
                           ! layer [nondim].  The vertical sum of a() through the pieces of
@@ -291,7 +293,7 @@ subroutine mixedlayer_restrat_OM4(h, uhtr, vhtr, tv, forces, dt, h_MLD, VarMix, 
     call MOM_error(FATAL, "mixedlayer_restrat_OM4: "// &
          "The resolution argument, Rd/dx, was not associated.")
   if (CS%use_Stanley_ML .and. .not.GV%Boussinesq) call MOM_error(FATAL, &
-       "MOM_mixedlayer_restrat: The Stanley parameterization is not"//&
+       "MOM_mixedlayer_restrat: The Stanley parameterization is not "//&
        "available without the Boussinesq approximation.")
 
   ! Extract the friction velocity from the forcing type.
@@ -510,7 +512,7 @@ subroutine mixedlayer_restrat_OM4(h, uhtr, vhtr, tv, forces, dt, h_MLD, VarMix, 
     timescale = timescale * CS%ml_restrat_coef
 
     if (res_upscale) timescale = timescale * res_scaling_fac
-    uDml(I) = timescale * G%OBCmaskCu(I,j)*G%dyCu(I,j)*G%IdxCu(I,j) * &
+    uDml(I) = timescale * G%dyCu(I,j)*G%IdxCu_OBCmask(I,j) * &
         (Rml_av_fast(i+1,j)-Rml_av_fast(i,j)) * (h_vel**2)
 
     ! As above but using the slow filtered MLD
@@ -525,7 +527,7 @@ subroutine mixedlayer_restrat_OM4(h, uhtr, vhtr, tv, forces, dt, h_MLD, VarMix, 
     timescale = timescale * CS%ml_restrat_coef2
 
     if (res_upscale) timescale = timescale * res_scaling_fac
-    uDml_slow(I) = timescale * G%OBCmaskCu(I,j)*G%dyCu(I,j)*G%IdxCu(I,j) * &
+    uDml_slow(I) = timescale * G%dyCu(I,j)*G%IdxCu_OBCmask(I,j) * &
         (Rml_av_slow(i+1,j)-Rml_av_slow(i,j)) * (h_vel**2)
 
     if (uDml(I) + uDml_slow(I) == 0.) then
@@ -600,7 +602,7 @@ subroutine mixedlayer_restrat_OM4(h, uhtr, vhtr, tv, forces, dt, h_MLD, VarMix, 
     timescale = timescale * CS%ml_restrat_coef
 
     if (res_upscale) timescale = timescale * res_scaling_fac
-    vDml(i) = timescale * G%OBCmaskCv(i,J)*G%dxCv(i,J)*G%IdyCv(i,J) * &
+    vDml(i) = timescale * G%dxCv(i,J)*G%IdyCv_OBCmask(i,J) * &
         (Rml_av_fast(i,j+1)-Rml_av_fast(i,j)) * (h_vel**2)
 
     ! As above but using the slow filtered MLD
@@ -615,7 +617,7 @@ subroutine mixedlayer_restrat_OM4(h, uhtr, vhtr, tv, forces, dt, h_MLD, VarMix, 
     timescale = timescale * CS%ml_restrat_coef2
 
     if (res_upscale) timescale = timescale * res_scaling_fac
-    vDml_slow(i) = timescale * G%OBCmaskCv(i,J)*G%dxCv(i,J)*G%IdyCv(i,J) * &
+    vDml_slow(i) = timescale * G%dxCv(i,J)*G%IdyCv_OBCmask(i,J) * &
         (Rml_av_slow(i,j+1)-Rml_av_slow(i,j)) * (h_vel**2)
 
     if (vDml(i) + vDml_slow(i) == 0.) then
@@ -813,17 +815,16 @@ subroutine mixedlayer_restrat_Bodner(CS, G, GV, US, h, uhtr, vhtr, tv, forces, d
   real :: grid_dsd        ! combination of grid scales [L2 ~> m2]
   real :: h_sml           ! "Little h", the active mixing depth with diurnal cycle removed [H ~> m or kg m-2]
   real :: h_big           ! "Big H", the mixed layer depth based on a time filtered "little h" [H ~> m or kg m-2]
-  real :: grd_b           ! The vertically average gradient of buoyancy [L H-1 T-2 ~> s-2 or m-3 kg-1 s-2]
+  real :: grd_b           ! The vertically average gradient of buoyancy [L H-1 T-2 ~> s-2 or m3 kg-1 s-2]
   real :: psi_mag         ! Magnitude of stream function [L2 H T-1 ~> m3 s-1 or kg s-1]
   real :: h_neglect       ! tiny thickness usually lost in roundoff so can be neglected [H ~> m or kg m-2]
   real :: I4dt            ! 1/(4 dt) [T-1 ~> s-1]
-  real :: Ihtot,Ihtot_slow! Inverses of the total mixed layer thickness [H-1 ~> m-1 or m2 kg-1]
+  real :: Ihtot           ! Inverses of the total mixed layer thickness [H-1 ~> m-1 or m2 kg-1]
   real :: hAtVel          ! Thickness at the velocity points [H ~> m or kg m-2]
   real :: sigint          ! Fractional position within the mixed layer of the interface above a layer [nondim]
   real :: muzb            ! mu(z) at bottom of the layer [nondim]
   real :: muza            ! mu(z) at top of the layer [nondim]
   real :: dh              ! Portion of the layer thickness that is in the mixed layer [H ~> m or kg m-2]
-  real :: res_scaling_fac ! The resolution-dependent scaling factor [nondim]
   real :: Z3_T3_to_m3_s3  ! Conversion factors to undo scaling and permit terms to be raised to a
                           ! fractional power [T3 m3 Z-3 s-3 ~> 1]
   real :: m2_s2_to_Z2_T2  ! Conversion factors to restore scaling after a term is raised to a
@@ -1251,7 +1252,7 @@ subroutine mixedlayer_restrat_BML(h, uhtr, vhtr, tv, forces, dt, G, GV, US, CS)
   real :: g_Rho0          ! G_Earth/Rho0 times a thickness conversion factor
                           ! [L2 H-1 T-2 R-1 ~> m4 s-2 kg-1 or m7 s-2 kg-2]
   real :: Rho_ml(SZI_(G)) ! Potential density relative to the surface [R ~> kg m-3]
-  real :: rho_int(SZI_(G)) ! The integral of density over the mixed layer depth [R H ~> kg m-2 or kg2 m-3]
+  real :: rho_int(SZI_(G)) ! The integral of density over the mixed layer depth [R H ~> kg m-2 or kg2 m-5]
   real :: SpV_ml(SZI_(G)) ! Specific volume evaluated at the surface pressure [R-1 ~> m3 kg-1]
   real :: SpV_int(SZI_(G)) ! Specific volume integrated through the surface layer [H R-1 ~> m4 kg-1 or m]
   real :: p0(SZI_(G))     ! A pressure of 0 [R L2 T-2 ~> Pa]
@@ -1383,7 +1384,7 @@ subroutine mixedlayer_restrat_BML(h, uhtr, vhtr, tv, forces, dt, G, GV, US, CS)
     timescale = timescale * CS%ml_restrat_coef
 !      timescale = timescale*(2?)*(L_def/L_MLI) * min(EKE/MKE,1.0 + (G%dyCv(i,j)/L_def)**2)
 
-    uDml(I) = timescale * G%OBCmaskCu(I,j)*G%dyCu(I,j)*G%IdxCu(I,j) * &
+    uDml(I) = timescale * G%dyCu(I,j)*G%IdxCu_OBCmask(I,j) * &
         (Rml_av(i+1,j)-Rml_av(i,j)) * (h_vel**2)
 
     if (uDml(I) == 0) then
@@ -1434,7 +1435,7 @@ subroutine mixedlayer_restrat_BML(h, uhtr, vhtr, tv, forces, dt, G, GV, US, CS)
     timescale = timescale * CS%ml_restrat_coef
 !     timescale = timescale*(2?)*(L_def/L_MLI) * min(EKE/MKE,1.0 + (G%dyCv(i,j)/L_def)**2)
 
-    vDml(i) = timescale * G%OBCmaskCv(i,J)*G%dxCv(i,J)*G%IdyCv(i,J) * &
+    vDml(i) = timescale * G%dxCv(i,J)*G%IdyCv_OBCmask(i,J) * &
         (Rml_av(i,j+1)-Rml_av(i,j)) * (h_vel**2)
     if (vDml(i) == 0) then
       do k=1,nkml ; vhml(i,J,k) = 0.0 ; enddo
@@ -1639,7 +1640,6 @@ logical function mixedlayer_restrat_init(Time, G, GV, US, param_file, diag, CS, 
   character(len=32)  :: fl_varname ! Name of front-length scale variable in mle_fl_file.
 
 # include "version_variable.h"
-  integer :: i, j
   character(len=200) :: filename, varname
 
   ! Read all relevant parameters and write them to the model log.
@@ -1839,7 +1839,7 @@ logical function mixedlayer_restrat_init(Time, G, GV, US, param_file, diag, CS, 
       endif
       if (CS%fl_from_file .and. CS%front_length>0.0) call MOM_error(FATAL, "mixedlayer_restrat_init: "// &
              "MLE_FRONT_LENGTH_FROM_FILE cannot be true when MLE_FRONT_LENGTH > 0.0. "// &
-             "If you want to use MLE_FRONT_LENGTH, set MLE_FRONT_LENGTH_FROM_FILE to false." // &
+             "If you want to use MLE_FRONT_LENGTH, set MLE_FRONT_LENGTH_FROM_FILE to false. " // &
              "If you want to use MLE_FRONT_LENGTH_FROM_FILE, set MLE_FRONT_LENGTH to 0.0.")
       call get_param(param_file, mdl, "MLE_USE_PBL_MLD", CS%MLE_use_PBL_MLD, &
              "If true, the MLE parameterization will use the mixed-layer "//&
@@ -2013,8 +2013,8 @@ end subroutine mixedlayer_restrat_register_restarts
 !! Returns false otherwise.
 logical function mixedlayer_restrat_unit_tests(verbose)
   logical, intent(in) :: verbose !< If true, write results to stdout
+
   ! Local variables
-  type(mixedlayer_restrat_CS) :: CS ! Control structure
   logical :: this_test
 
   print *,'===== mixedlayer_restrat: mixedlayer_restrat_unit_tests =================='
@@ -2066,7 +2066,6 @@ logical function test_answer(verbose, u, u_true, label, tol)
   real, optional,     intent(in) :: tol    !< The tolerance for differences between u and u_true [A]
   ! Local variables
   real :: tolerance ! The tolerance for differences between u and u_true [A]
-  integer :: k
 
   tolerance = 0.0 ; if (present(tol)) tolerance = tol
   test_answer = .false.

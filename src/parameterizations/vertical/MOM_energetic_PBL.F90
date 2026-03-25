@@ -1,7 +1,9 @@
+! This file is part of MOM6, the Modular Ocean Model version 6.
+! See the LICENSE file for licensing information.
+! SPDX-License-Identifier: Apache-2.0
+
 !> Energetically consistent planetary boundary layer parameterization
 module MOM_energetic_PBL
-
-! This file is part of MOM6. See LICENSE.md for the license.
 
 use MOM_cpu_clock,      only : cpu_clock_id, cpu_clock_begin, cpu_clock_end, CLOCK_ROUTINE
 use MOM_coms,           only : EFP_type, real_to_EFP, EFP_to_real, operator(+), assignment(=), EFP_sum_across_PEs
@@ -458,7 +460,7 @@ subroutine energetic_PBL(h_3d, u_3d, v_3d, tv, fluxes, visc, dt, Kd_int, G, GV, 
     BBL_Vel_Scale, &       ! The velocity scale used in getting the BBL part of Kd [Z T-1 ~> m s-1]
     BBL_Mix_Length         ! The length scale used in getting the BBL part of Kd [Z ~> m]
   real, dimension(SZI_(G),SZJ_(G)) :: &
-    ! The next 7 diagnostics are terms in the mixed layer TKE budget, all in [R Z3 T-3 ~> W m-2 = kg s-3].
+    ! The next 7 diagnostics are terms in the mixed layer TKE budget, all in [R Z3 T-3 ~> W m-2].
     diag_TKE_wind, &   ! The wind source of TKE [R Z3 T-3 ~> W m-2]
     diag_TKE_MKE, &    ! The resolved KE source of TKE [R Z3 T-3 ~> W m-2]
     diag_TKE_conv, &   ! The convective source of TKE [R Z3 T-3 ~> W m-2]
@@ -477,8 +479,7 @@ subroutine energetic_PBL(h_3d, u_3d, v_3d, tv, fluxes, visc, dt, Kd_int, G, GV, 
     diag_mstar_LT, &   ! mstar due to Langmuir turbulence [nondim]
     diag_LA, &         ! Langmuir number [nondim]
     diag_LA_mod, &     ! Modified Langmuir number [nondim]
-    diag_ustar, &      ! The surface boundary layer friction velocity [Z T-1 ~> m s-1]
-    diag_bflx          ! The surface boundary layer buoyancy flux  [Z2 T-3 ~> m2 s-3]
+    diag_ustar         ! The surface boundary layer friction velocity [Z T-1 ~> m s-1]
 
   ! The following variables are only used for diagnosing sensitivities to ePBL settings
   real, dimension(SZK_(GV)+1) :: &
@@ -1028,7 +1029,8 @@ subroutine ePBL_column(h, dz, u, v, T0, S0, dSV_dT, dSV_dS, SpV_dt, TKE_forcing,
   real :: dz_neglect ! A vertical distance that is so small it is usually lost
                     ! in roundoff and can be neglected [Z ~> m].
   real :: dMass     ! The mass per unit area within a layer [Z R ~> kg m-2].
-  real :: dPres     ! The hydrostatic pressure change across a layer [R Z2 T-2 ~> Pa = J m-3].
+  real :: dPres     ! The hydrostatic pressure change across a layer [R Z2 T-2 ~> Pa] or
+                    ! equivalently [R Z2 T-2 ~> J m-3].
   real :: dMKE_max  ! The maximum amount of mean kinetic energy that could be
                     ! converted to turbulent kinetic energy if the velocity in
                     ! the layer below an interface were homogenized with all of
@@ -2068,8 +2070,6 @@ subroutine ePBL_BBL_column(h, dz, u, v, T0, S0, dSV_dT, dSV_dS, SpV_dt, absf, &
     c1, &           ! c1 is used by the tridiagonal solver [nondim].
     Te, &           ! Estimated final values of T in the column [C ~> degC].
     Se, &           ! Estimated final values of S in the column [S ~> ppt].
-    dTe, &          ! Running (1-way) estimates of temperature change [C ~> degC].
-    dSe, &          ! Running (1-way) estimates of salinity change [S ~> ppt].
     hp_a, &         ! An effective pivot thickness of the layer including the effects
                     ! of coupling with layers above [H ~> m or kg m-2].  This is the first term
                     ! in the denominator of b1 in a downward-oriented tridiagonal solver.
@@ -2098,8 +2098,8 @@ subroutine ePBL_BBL_column(h, dz, u, v, T0, S0, dSV_dT, dSV_dS, SpV_dt, absf, &
   real :: dz_neglect ! A vertical distance that is so small it is usually lost
                     ! in roundoff and can be neglected [Z ~> m].
   real :: dMass     ! The mass per unit area within a layer [Z R ~> kg m-2].
-  real :: dPres     ! The hydrostatic pressure change across a layer [R Z2 T-2 ~> Pa = J m-3].
-
+  real :: dPres     ! The hydrostatic pressure change across a layer [R Z2 T-2 ~> Pa] or
+                    ! equivalently [R Z2 T-2 ~> J m-3].
   real :: dt_h      ! The timestep divided by the averages of the vertical distances around
                     ! a layer [T Z-1 ~> s m-1].
   real :: dz_top    ! The distance from the surface [Z ~> m].
@@ -2156,7 +2156,6 @@ subroutine ePBL_BBL_column(h, dz, u, v, T0, S0, dSV_dT, dSV_dS, SpV_dt, absf, &
   real :: min_BBLD, max_BBLD ! Iteration bounds on BBLD [Z ~> m], which are adjusted at each step
   real :: dBBLD_min  ! The change in diagnosed mixed layer depth when the guess is min_BLD [Z ~> m]
   real :: dBBLD_max  ! The change in diagnosed mixed layer depth when the guess is max_BLD [Z ~> m]
-  logical :: BBL_converged ! Flag for convergence of BBLD
   integer :: BBL_it        ! Iteration counter
 
   real :: Surface_Scale ! Surface decay scale for vstar [nondim]
@@ -2777,8 +2776,7 @@ subroutine kappa_eqdisc(shape_func, CS, GV, dz, absf, B_flux, u_star, MLD_guess)
 
   ! variables used for optimizing computations:
   real :: sm_h     ! sigma_max multiplied by boundary layer depth [Z ~> m]
-  real :: sm_h_I   ! inverse of sm_h,[Z-1 ~> m-1]
-  real :: sm_h_I2  ! An inverse variable given by 1.0/(h - sm_h), [Z-1 ~> m-1]
+  real :: sm_h_I   ! inverse of sm_h [Z-1 ~> m-1]
   real :: hz_n     ! z depth to avoid calling hz multiple times [Z ~> m]
   real :: z_minus_sm_h  ! depth z minus \sigma_m * MLD_Guess [Z ~> m]
   real :: z_minus_sm_h2 ! (depth z minus \sigma_m * MLD_Guess)^2 [Z2 ~> m2]

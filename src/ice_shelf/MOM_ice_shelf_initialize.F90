@@ -1,7 +1,9 @@
+! This file is part of MOM6, the Modular Ocean Model version 6.
+! See the LICENSE file for licensing information.
+! SPDX-License-Identifier: Apache-2.0
+
 !> Initialize ice shelf variables
 module MOM_ice_shelf_initialize
-
-! This file is part of MOM6. See LICENSE.md for the license.
 
 use MOM_grid, only : ocean_grid_type
 use MOM_array_transform,      only : rotate_array
@@ -40,9 +42,9 @@ subroutine initialize_ice_thickness(h_shelf, area_shelf_h, hmask, melt_mask, G, 
                          intent(inout) :: area_shelf_h !< The area per cell covered by the ice shelf [L2 ~> m2].
   real, dimension(SZDI_(G),SZDJ_(G)), &
                          intent(inout) :: hmask !< A mask indicating which tracer points are
-                                             !! partly or fully covered by an ice-shelf
+                                             !! partly or fully covered by an ice-shelf [nondim]
   real, dimension(SZDI_(G),SZDJ_(G)), &
-                         intent(inout) :: melt_mask !< A mask indicating where to allow ice-shelf melting
+                         intent(inout) :: melt_mask !< A mask indicating where to allow ice-shelf melting [nondim]
   type(unit_scale_type), intent(in)    :: US !< A structure containing unit conversion factors
   type(param_file_type), intent(in)    :: PF !< A structure to parse for run-time parameters
   logical, intent(in), optional        :: rotate_index !< If true, this is a rotation test
@@ -51,10 +53,10 @@ subroutine initialize_ice_thickness(h_shelf, area_shelf_h, hmask, melt_mask, G, 
   character(len=40)  :: mdl = "initialize_ice_thickness" ! This subroutine's name.
   character(len=200) :: config
   logical :: rotate = .false.
-  real, allocatable, dimension(:,:) :: tmp1_2d ! Temporary array for storing ice shelf input data
-  real, allocatable, dimension(:,:) :: tmp2_2d ! Temporary array for storing ice shelf input data
-  real, allocatable, dimension(:,:) :: tmp3_2d ! Temporary array for storing ice shelf input data
-  real, allocatable, dimension(:,:) :: tmp4_2d ! Temporary array for storing ice shelf input data
+  real, allocatable, dimension(:,:) :: tmp1_2d ! Temporary array for storing ice shelf input data [Z~>m]
+  real, allocatable, dimension(:,:) :: tmp2_2d ! Temporary array for storing ice shelf input data [L2~>m2]
+  real, allocatable, dimension(:,:) :: tmp3_2d ! Temporary array for storing ice shelf input data [nondim]
+  real, allocatable, dimension(:,:) :: tmp4_2d ! Temporary array for storing ice shelf input data [nondim]
 
   call get_param(PF, mdl, "ICE_PROFILE_CONFIG", config, &
                  "This specifies how the initial ice profile is specified. "//&
@@ -99,9 +101,9 @@ subroutine initialize_ice_thickness_from_file(h_shelf, area_shelf_h, hmask, melt
                          intent(inout) :: area_shelf_h !< The area per cell covered by the ice shelf [L2 ~> m2].
   real, dimension(SZDI_(G),SZDJ_(G)), &
                          intent(inout) :: hmask !< A mask indicating which tracer points are
-                                             !! partly or fully covered by an ice-shelf
+                                             !! partly or fully covered by an ice-shelf [nondim]
   real, dimension(SZDI_(G),SZDJ_(G)), &
-                         intent(inout) :: melt_mask !< A mask indicating where to allow ice-shelf melting
+                         intent(inout) :: melt_mask !< A mask indicating where to allow ice-shelf melting [nondim]
   type(unit_scale_type), intent(in)    :: US !< A structure containing unit conversion factors
   type(param_file_type), intent(in)    :: PF !< A structure to parse for run-time parameters
 
@@ -241,7 +243,7 @@ subroutine initialize_ice_thickness_channel(h_shelf, area_shelf_h, hmask, G, US,
 !  call get_param(param_file, mdl, "RHO_0", Rho_ocean, &
 !                 "The mean ocean density used with BOUSSINESQ true to "//&
 !                 "calculate accelerations and the mass for conservation "//&
-!                 "properties, or with BOUSSINSEQ false to convert some "//&
+!                 "properties, or with BOUSSINESQ false to convert some "//&
 !                 "parameters from vertical units of m to kg m-2.", &
 !                 units="kg m-3", default=1035.0, scale=US%Z_to_m)
 
@@ -332,7 +334,7 @@ subroutine initialize_ice_shelf_boundary_channel(u_face_mask_bdry, v_face_mask_b
   character(len=40)  :: mdl = "initialize_ice_shelf_boundary_channel" ! This subroutine's name.
   integer :: i, j, isd, jsd, giec, gjec, gisc, gjsc,gisd,gjsd, isc, jsc, iec, jec, ied, jed
   real    :: input_thick ! The input ice shelf thickness [Z ~> m]
-  real    :: input_vel  ! The input ice velocity per  [L Z T-1 ~> m s-1]
+  real    :: input_vel  ! The input ice velocity at the upstream boundary [L T-1 ~> m s-1]
   real    :: lenlat, len_stress, westlon, lenlon, southlat ! The input positions of the channel boundarises
 
   lenlat = G%len_lat
@@ -670,10 +672,10 @@ subroutine initialize_ice_AGlen(AGlen, ice_viscosity_compute, G, US, PF)
        " initialize_ice_stiffness_from_file: Unable to open "//trim(filename))
 
     if (trim(ice_viscosity_compute) == "OBS") then
-      !AGlen is the ice viscosity [Pa s ~> R L2 T-1] computed from obs and read from a file
+      ! AGlen is the ice viscosity [R L2 T-1 ~> Pa s] computed from obs and read from a file
       call MOM_read_data(filename, trim(varname), AGlen, G%Domain, scale=US%Pa_to_RL2_T2*US%s_to_T)
     else
-      !AGlen is the ice stiffness parameter [Pa-n_g s-1]
+      ! AGlen is the ice stiffness parameter [Pa-n_g s-1]
       call MOM_read_data(filename, trim(varname), AGlen, G%Domain)
     endif
   endif

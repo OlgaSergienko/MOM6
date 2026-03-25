@@ -1,7 +1,9 @@
+! This file is part of MOM6, the Modular Ocean Model version 6.
+! See the LICENSE file for licensing information.
+! SPDX-License-Identifier: Apache-2.0
+
 !> Initializes horizontal grid
 module MOM_grid_initialize
-
-! This file is part of MOM6. See LICENSE.md for the license.
 
 use MOM_checksums,     only : hchksum, Bchksum, uvchksum, hchksum_pair, Bchksum_pair
 use MOM_domains,       only : pass_var, pass_vector, pe_here, root_PE, broadcast
@@ -746,7 +748,7 @@ subroutine set_grid_metrics_mercator(G, param_file, US)
     fnRef = Int_dj_dy((GP%south_lat*PI/180.0), GP)
   endif
 
-  ! These calculations no longer depend on the the order in which they
+  ! These calculations no longer depend on the order in which they
   ! are performed because they all use the same (poor) starting guess and
   ! iterate to convergence.
   ! Note that the dynamic grid always uses symmetric memory for the global
@@ -786,7 +788,7 @@ subroutine set_grid_metrics_mercator(G, param_file, US)
   iRef = (G%isg-1) + GP%niglobal
   fnRef = Int_di_dx(((GP%west_lon+GP%len_lon)*PI/180.0), GP)
 
-  ! These calculations no longer depend on the the order in which they
+  ! These calculations no longer depend on the order in which they
   ! are performed because they all use the same (poor) starting guess and
   ! iterate to convergence.
   do I=G%isg-1,G%ieg
@@ -1332,6 +1334,7 @@ subroutine initialize_masks(G, PF, US, OBC_dir_u, OBC_dir_v, open_corner_OBCs)
   do j=G%jsd,G%jed ; do I=G%IsdB,G%IedB
     ! This open face length may be revised later.
     G%dy_Cu(I,j) = G%mask2dCu(I,j) * G%dyCu(I,j)
+    G%IdxCu_OBCmask(I,j) = G%OBCmaskCu(I,j) * G%IdxCu(I,j)
     G%areaCu(I,j) = G%dxCu(I,j) * G%dy_Cu(I,j)
     G%IareaCu(I,j) = G%mask2dCu(I,j) * Adcroft_reciprocal(G%areaCu(I,j))
   enddo ; enddo
@@ -1339,6 +1342,7 @@ subroutine initialize_masks(G, PF, US, OBC_dir_u, OBC_dir_v, open_corner_OBCs)
   do J=G%JsdB,G%JedB ; do i=G%isd,G%ied
     ! This open face length may be revised later.
     G%dx_Cv(i,J) = G%mask2dCv(i,J) * G%dxCv(i,J)
+    G%IdyCv_OBCmask(i,J) = G%OBCmaskCv(i,J) * G%IdyCv(i,J)
     G%areaCv(i,J) = G%dyCv(i,J) * G%dx_Cv(i,J)
     G%IareaCv(i,J) = G%mask2dCv(i,J) * Adcroft_reciprocal(G%areaCv(i,J))
   enddo ; enddo

@@ -1,11 +1,13 @@
+! This file is part of MOM6, the Modular Ocean Model version 6.
+! See the LICENSE file for licensing information.
+! SPDX-License-Identifier: Apache-2.0
+
 !> A tracer package for tracers computed in the MARBL library
 !!
 !! Currently configured for use with marbl0.36.0
 !! https://github.com/marbl-ecosys/MARBL/releases/tag/marbl0.36.0
 !! (clone entire repo into pkg/MARBL)
 module MARBL_tracers
-
-! This file is part of MOM6. See LICENSE.md for the license.
 
 use MOM_coms,            only : EFP_type, root_PE, broadcast
 use MOM_debugging,       only : hchksum
@@ -1308,7 +1310,7 @@ subroutine MARBL_tracers_column_physics(h_old, h_new, ea, eb, fluxes, dt, G, GV,
   real, dimension(SZI_(G),SZJ_(G)) :: flux_from_salt_flux ! Surface tracer flux from salt flux
                                                           ! [conc Z T-1 ~> conc m s-1].
   real, dimension(SZI_(G),SZJ_(G)) :: ref_mask ! Mask for 2D MARBL diags using ref_depth [1]
-  real, dimension(SZI_(G),SZJ_(G)) :: riv_flux_loc ! Local copy of CS%RIV_FLUXES*dt [mmol m-2 ~> conc H]
+  real, dimension(SZI_(G),SZJ_(G)) :: riv_flux_loc ! Local copy of CS%RIV_FLUXES*dt [conc H ~> mmol m-2]
   real, dimension(SZI_(G),SZJ_(G),SZK_(G)) :: h_work ! Used so that h can be modified [H ~> m or kg m-2]
   real, dimension(SZI_(G),SZJ_(G),SZK_(G)) :: bot_flux_to_tend  ! Conversion factor for bottom tlux -> tend
                                                                 ! [Z-1 ~> m-1]
