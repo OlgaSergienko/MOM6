@@ -422,7 +422,7 @@ subroutine init_oda(Time, G, GV, US, diag_CS, CS)
 !  if (CS%write_obs) then
 !    temp_fid = open_profile_file("temp_"//trim(obs_file))
 !    salt_fid = open_profile_file("salt_"//trim(obs_file))
-!  end if
+!  endif
 
 end subroutine init_oda
 
@@ -669,7 +669,7 @@ subroutine set_analysis_time(Time,CS)
 
   if (Time >= CS%Time) then
     ! increment the analysis time to the next step
-    CS%Time = CS%Time + real_to_time(CS%US%T_to_s*(CS%assim_interval))
+    CS%Time = CS%Time + real_to_time(CS%assim_interval, unscale=CS%US%T_to_s)
 
     call get_date(Time, yr, mon, day, hr, min, sec)
     write(mesg,*) 'Model Time: ', yr, mon, day, hr, min, sec

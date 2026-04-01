@@ -31,7 +31,7 @@ use MOM_error_handler, only : callTree_showQuery
 use MOM_error_handler, only : callTree_enter, callTree_leave, callTree_waypoint
 use MOM_file_parser, only : read_param, get_param, log_param, log_version, param_file_type
 use MOM_grid, only : MOM_grid_init, ocean_grid_type
-use MOM_grid_initialize, only : set_grid_metrics
+use MOM_grid_initialize, only : initialize_masks, set_grid_metrics
 use MOM_hor_index,             only : hor_index_type, hor_index_init
 use MOM_hor_index,             only : rotate_hor_index
 use MOM_fixed_initialization, only : MOM_initialize_topography
@@ -218,7 +218,7 @@ type, public :: ice_shelf_CS ; private
              id_tfreeze = -1, id_tfl_shelf = -1, &
              id_thermal_driving = -1, id_haline_driving = -1, &
              id_u_ml = -1, id_v_ml = -1, id_sbdry = -1, &
-             id_h_shelf = -1, id_dhdt_shelf, id_h_mask = -1, id_frazil = -1, &
+             id_h_shelf = -1, id_dhdt_shelf = -1, id_h_mask = -1, id_frazil = -1, &
              id_surf_elev = -1, id_bathym = -1, &
              id_area_shelf_h = -1, &
              id_ustar_shelf = -1, id_shelf_mass = -1, id_mass_flux = -1, &
@@ -1695,8 +1695,10 @@ subroutine initialize_ice_shelf(param_file, ocn_grid, Time, CS, diag, Time_init,
   real    :: utide  ! A tidal velocity [L T-1 ~> m s-1]
   real    :: col_thick_melt_thresh ! An ocean column thickness below which iceshelf melting
                                    ! does not occur [Z ~> m]
-  real, allocatable, dimension(:,:) :: tmp2d ! Temporary array for storing ice shelf input data
+  real, allocatable, dimension(:,:) :: tmp2d ! Temporary array for ice shelf input data [L T-1 ~> m s-1]
   character(len=240) :: mesg  ! The text of an error message
+  real, allocatable, dimension(:,:) :: maskT ! Temporary array for the tracer points masks [nondim]
+
   type(surface), pointer :: sfc_state => NULL()
   type(vardesc) :: u_desc, v_desc
 
@@ -1755,6 +1757,12 @@ subroutine initialize_ice_shelf(param_file, ocn_grid, Time, CS, diag, Time_init,
     call set_grid_metrics(dG_in, param_file, CS%US)
     ! Set up the bottom depth, dG_in%bathyT, either analytically or from file
     call MOM_initialize_topography(dG_in%bathyT, CS%Grid_in%max_depth, dG_in, param_file, CS%US)
+
+    ! The use of maskT here sets all ice shelf points to be unmasked.
+    allocate(maskT(dG_in%isd:dG_in%ied,dG_in%jsd:dG_in%jed), source=1.0)
+    call initialize_masks(dG_in, param_file, CS%US, maskT=maskT)
+    deallocate(maskT)
+
     call copy_dyngrid_to_MOM_grid(dG_in, CS%Grid_in, CS%US)
 
     ! Now set up the rotated ice-shelf grid.
@@ -1776,6 +1784,12 @@ subroutine initialize_ice_shelf(param_file, ocn_grid, Time, CS, diag, Time_init,
     call set_grid_metrics(dG, param_file, CS%US)
     ! Set up the bottom depth, dG%bathyT, either analytically or from file
     call MOM_initialize_topography(dG%bathyT, CS%Grid%max_depth, dG, param_file, CS%US)
+
+    ! The use of maskT here sets all ice shelf points to be unmasked.
+    allocate(maskT(dG%isd:dG%ied,dG%jsd:dG%jed), source=1.0)
+    call initialize_masks(dG, param_file, CS%US, maskT=maskT)
+    deallocate(maskT)
+
     call copy_dyngrid_to_MOM_grid(dG, CS%Grid, CS%US)
     call destroy_dyn_horgrid(dG)
   endif
