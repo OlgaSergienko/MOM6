@@ -2893,7 +2893,8 @@ subroutine CG_action(CS, uret, vret, u_shlf, v_shlf, Phi, Phisub, umask, vmask, 
         Hcell(:,:) = H_node(I-1:I,J-1:J)
 
         call CG_action_subgrid_basal(Phisub, Hcell, Ucell, Vcell, &
-                                     bathyT(i,j), dens_ratio, Usub, Vsub)
+                                     bathyT(i,j), dens_ratio, Usub, Vsub, &
+                                     G%dxCv(i,j-1), G%dxCv(i,j), G%dyCu(i-1,j), G%dyCu(i,j), G%IareaT(i,j))
 
         if (umask(I-1,J-1) == 1) uret_b(I-1,J-1,4) = uret_b(I-1,J-1,4) + (Usub(1,1) * basal_trac(i,j))
         if (umask(I-1,J  ) == 1) uret_b(I-1,J  ,2) = uret_b(I-1,J  ,2) + (Usub(1,2) * basal_trac(i,j))
@@ -2938,7 +2939,8 @@ subroutine CG_action(CS, uret, vret, u_shlf, v_shlf, Phi, Phisub, umask, vmask, 
 
 end subroutine CG_action
 
-subroutine CG_action_subgrid_basal(Phisub, H, U, V, bathyT, dens_ratio, Ucontr, Vcontr)
+subroutine CG_action_subgrid_basal(Phisub, H, U, V, bathyT, dens_ratio, Ucontr, Vcontr, &
+                                    dxCv_S, dxCv_N, dyCu_W, dyCu_E, IareaT)
   real, dimension(:,:,:,:,:,:), &
                         intent(in)    :: Phisub !< Quadrature structure weights at subgridscale
                                             !! locations for finite element calculations [nondim]
@@ -2953,18 +2955,25 @@ subroutine CG_action_subgrid_basal(Phisub, H, U, V, bathyT, dens_ratio, Ucontr, 
                                             !! is grounded, or 0 where it is floating [L T-1 ~> m s-1].
   real, dimension(2,2), intent(out)   :: Vcontr !< The areal average of v-velocities where the ice shelf
                                             !! is grounded, or 0 where it is floating [L T-1 ~> m s-1].
+  real,                 intent(in)    :: dxCv_S !< The cell width at the southern (v-point) edge [L ~> m]
+  real,                 intent(in)    :: dxCv_N !< The cell width at the northern (v-point) edge [L ~> m]
+  real,                 intent(in)    :: dyCu_W !< The cell height at the western (u-point) edge [L ~> m]
+  real,                 intent(in)    :: dyCu_E !< The cell height at the eastern (u-point) edge [L ~> m]
+  real,                 intent(in)    :: IareaT !< The inverse of the cell area at the tracer point [L-2 ~> m-2]
 
   real, dimension(SIZE(Phisub,3),SIZE(Phisub,3),2,2) :: Ucontr_sub, Vcontr_sub ! The contributions to Ucontr and Vcontr
                                                                                !! at each sub-cell
   real, dimension(2,2,SIZE(Phisub,3),SIZE(Phisub,3)) :: uloc_arr !The local sub-cell u-velocity [L T-1 ~> m s-1]
   real, dimension(2,2,SIZE(Phisub,3),SIZE(Phisub,3)) :: vloc_arr !The local sub-cell v-velocity [L T-1 ~> m s-1]
   real, dimension(2,2) :: Ucontr_q, Vcontr_q !Contributions to a node from each quadrature point in a sub-grid cell
-  real    :: subarea ! The fractional sub-cell area [nondim]
-  real    :: hloc    ! The local sub-cell ice thickness [Z ~> m]
+  real    :: jac_sub_wt ! Per-sub-cell-QP metric correction |J_sub|/areaT [nondim]
+  real    :: a, d      ! Interpolated cell-edge spacings at the sub-cell QP [L ~> m]
+  real    :: subarea   ! The fractional sub-cell area in reference space [nondim]
+  real    :: hloc      ! The local sub-cell ice thickness [Z ~> m]
   integer :: nsub, i, j, qx, qy, m, n
 
   nsub = size(Phisub,3)
-  subarea = 1.0 / (nsub**2)
+  subarea = 1.0 / real(nsub)**2
 
   uloc_arr(:,:,:,:) = 0.0; vloc_arr(:,:,:,:)=0.0
 
@@ -2981,14 +2990,24 @@ subroutine CG_action_subgrid_basal(Phisub, H, U, V, bathyT, dens_ratio, Ucontr, 
 
   do n=1,2 ; do m=1,2 ; do j=1,nsub ; do i=1,nsub
     do qy=1,2 ; do qx=1,2
+      ! Interpolate cell-edge metrics to the sub-cell QP using the bilinear shape function values
+      ! from bilinear_shape_functions_subgrid.  Marginal sums of Phisub give the interpolation
+      ! weights: sum over k=1 nodes gives (1-y); k=2 gives y; l=1 gives (1-x); l=2 gives x.
+      ! This is analogous to jac_wt = CS%Jac(qp,i,j) * G%IareaT(i,j) in the regular routines.
+      a = dxCv_S * (Phisub(qx,qy,i,j,1,1) + Phisub(qx,qy,i,j,2,1)) + &  ! (1-y) * dxCv_S
+          dxCv_N * (Phisub(qx,qy,i,j,1,2) + Phisub(qx,qy,i,j,2,2))        ! + y * dxCv_N
+      d = dyCu_W * (Phisub(qx,qy,i,j,1,1) + Phisub(qx,qy,i,j,1,2)) + &  ! (1-x) * dyCu_W
+          dyCu_E * (Phisub(qx,qy,i,j,2,1) + Phisub(qx,qy,i,j,2,2))        ! + x * dyCu_E
+      jac_sub_wt = 0.25 * subarea * (a * d) * IareaT
+
       !calculate quadrature point contributions for the sub-cell, to each node
-        Ucontr_q(qx,qy) = Phisub(qx,qy,i,j,m,n) * uloc_arr(qx,qy,i,j)
-        Vcontr_q(qx,qy) = Phisub(qx,qy,i,j,m,n) * vloc_arr(qx,qy,i,j)
+      Ucontr_q(qx,qy) = jac_sub_wt * Phisub(qx,qy,i,j,m,n) * uloc_arr(qx,qy,i,j)
+      Vcontr_q(qx,qy) = jac_sub_wt * Phisub(qx,qy,i,j,m,n) * vloc_arr(qx,qy,i,j)
     enddo; enddo
 
     !calculate sub-cell contribution to each node by summing up quadrature point contributions from the sub-cell
-    Ucontr_sub(i,j,m,n) = (subarea * 0.25) * ((Ucontr_q(1,1) + Ucontr_q(2,2)) + (Ucontr_q(1,2)+Ucontr_q(2,1)))
-    Vcontr_sub(i,j,m,n) = (subarea * 0.25) * ((Vcontr_q(1,1) + Vcontr_q(2,2)) + (Vcontr_q(1,2)+Vcontr_q(2,1)))
+    Ucontr_sub(i,j,m,n) = (Ucontr_q(1,1) + Ucontr_q(2,2)) + (Ucontr_q(1,2)+Ucontr_q(2,1))
+    Vcontr_sub(i,j,m,n) = (Vcontr_q(1,1) + Vcontr_q(2,2)) + (Vcontr_q(1,2)+Vcontr_q(2,1))
   enddo; enddo ; enddo ; enddo
 
   !sum up the sub-cell contributions to each node
@@ -3220,7 +3239,8 @@ subroutine matrix_diagonal(CS, G, US, float_cond, H_node, ice_visc, basal_trac, 
 
     if (float_cond(i,j) == 1) then
       Hcell(:,:) = H_node(i-1:i,j-1:j)
-      call CG_diagonal_subgrid_basal(Phisub, Hcell, CS%bed_elev(i,j), dens_ratio, sub_ground)
+      call CG_diagonal_subgrid_basal(Phisub, Hcell, CS%bed_elev(i,j), dens_ratio, sub_ground, &
+                                      G%dxCv(i,j-1), G%dxCv(i,j), G%dyCu(i-1,j), G%dyCu(i,j), G%IareaT(i,j))
 
         if (CS%umask(I-1,J-1) == 1) u_diag_b(I-1,J-1,4) = u_diag_b(I-1,J-1,4) + (sub_ground(1,1) * basal_trac(i,j))
         if (CS%umask(I-1,J  ) == 1) u_diag_b(I-1,J  ,2) = u_diag_b(I-1,J  ,2) + (sub_ground(1,2) * basal_trac(i,j))
@@ -3263,7 +3283,8 @@ subroutine matrix_diagonal(CS, G, US, float_cond, H_node, ice_visc, basal_trac, 
 
 end subroutine matrix_diagonal
 
-subroutine CG_diagonal_subgrid_basal (Phisub, H_node, bathyT, dens_ratio, f_grnd)
+subroutine CG_diagonal_subgrid_basal (Phisub, H_node, bathyT, dens_ratio, f_grnd, &
+                                       dxCv_S, dxCv_N, dyCu_W, dyCu_E, IareaT)
   real, dimension(:,:,:,:,:,:), &
                         intent(in) :: Phisub !< Quadrature structure weights at subgridscale
                                              !! locations for finite element calculations [nondim]
@@ -3274,17 +3295,24 @@ subroutine CG_diagonal_subgrid_basal (Phisub, H_node, bathyT, dens_ratio, f_grnd
                                                  !! of seawater [nondim]
   real, dimension(2,2), intent(out) :: f_grnd !< The weighted fraction of the sub-cell where the ice shelf
                                               !! is grounded [nondim]
+  real,                 intent(in)    :: dxCv_S !< The cell width at the southern (v-point) edge [L ~> m]
+  real,                 intent(in)    :: dxCv_N !< The cell width at the northern (v-point) edge [L ~> m]
+  real,                 intent(in)    :: dyCu_W !< The cell height at the western (u-point) edge [L ~> m]
+  real,                 intent(in)    :: dyCu_E !< The cell height at the eastern (u-point) edge [L ~> m]
+  real,                 intent(in)    :: IareaT !< The inverse of the cell area at the tracer point [L-2 ~> m-2]
 
   real, dimension(SIZE(Phisub,3),SIZE(Phisub,3),2,2) :: f_grnd_sub ! The contributions to nodal f_grnd
                                                                    !! from each sub-cell
   integer, dimension(2,2,SIZE(Phisub,3),SIZE(Phisub,3)) :: grnd_stat !0 at floating quad points, 1 at grounded
   real, dimension(2,2) :: f_grnd_q  !Contributions to a node from each quadrature point in a sub-grid cell
-  real    :: subarea ! The fractional sub-cell area [nondim]
-  real    :: hloc    ! The local sub-region thickness [Z ~> m]
+  real    :: jac_sub_wt ! Per-sub-cell-QP metric correction |J_sub|/areaT [nondim]
+  real    :: a, d      ! Interpolated cell-edge spacings at the sub-cell QP [L ~> m]
+  real    :: subarea   ! The fractional sub-cell area in reference space [nondim]
+  real    :: hloc      ! The local sub-region thickness [Z ~> m]
   integer :: nsub, i, j, qx, qy, m, n
 
   nsub = size(Phisub,3)
-  subarea = 1.0 / (nsub**2)
+  subarea = 1.0 / real(nsub)**2
 
   grnd_stat(:,:,:,:)=0
 
@@ -3296,10 +3324,20 @@ subroutine CG_diagonal_subgrid_basal (Phisub, H_node, bathyT, dens_ratio, f_grnd
 
   do n=1,2 ; do m=1,2 ; do j=1,nsub ; do i=1,nsub
     do qy=1,2 ; do qx = 1,2
-        f_grnd_q(qx,qy) = grnd_stat(qx,qy,i,j) * Phisub(qx,qy,i,j,m,n)**2
+      ! Interpolate cell-edge metrics to the sub-cell QP using the bilinear shape function values
+      ! from bilinear_shape_functions_subgrid.  Marginal sums of Phisub give the interpolation
+      ! weights: sum over k=1 nodes gives (1-y); k=2 gives y; l=1 gives (1-x); l=2 gives x.
+      ! This is analogous to jac_wt = CS%Jac(qp,i,j) * G%IareaT(i,j) in the regular routines.
+      a = dxCv_S * (Phisub(qx,qy,i,j,1,1) + Phisub(qx,qy,i,j,2,1)) + &  ! (1-y) * dxCv_S
+          dxCv_N * (Phisub(qx,qy,i,j,1,2) + Phisub(qx,qy,i,j,2,2))        ! + y * dxCv_N
+      d = dyCu_W * (Phisub(qx,qy,i,j,1,1) + Phisub(qx,qy,i,j,1,2)) + &  ! (1-x) * dyCu_W
+          dyCu_E * (Phisub(qx,qy,i,j,2,1) + Phisub(qx,qy,i,j,2,2))        ! + x * dyCu_E
+      jac_sub_wt = 0.25 * subarea * (a * d) * IareaT
+
+      f_grnd_q(qx,qy) = jac_sub_wt * grnd_stat(qx,qy,i,j) * Phisub(qx,qy,i,j,m,n)**2
     enddo ; enddo
     !calculate sub-cell contribution to each node by summing up quadrature point contributions from the sub-cell
-    f_grnd_sub(i,j,m,n) = (subarea * 0.25) * ((f_grnd_q(1,1) + f_grnd_q(2,2)) + (f_grnd_q(1,2)+f_grnd_q(2,1)))
+    f_grnd_sub(i,j,m,n) = (f_grnd_q(1,1) + f_grnd_q(2,2)) + (f_grnd_q(1,2)+f_grnd_q(2,1))
   enddo ; enddo ; enddo ; enddo
 
   !sum up the sub-cell contributions to each node
@@ -4246,13 +4284,16 @@ subroutine ice_shelf_dyn_end(CS)
 
   deallocate(CS%u_shelf, CS%v_shelf)
   deallocate(CS%taudx_shelf, CS%taudy_shelf)
+  deallocate(CS%sx_shelf, CS%sy_shelf)
   deallocate(CS%t_shelf, CS%tmask)
   deallocate(CS%u_bdry_val, CS%v_bdry_val)
   deallocate(CS%u_face_mask, CS%v_face_mask)
+  deallocate(CS%u_flux_bdry_val, CS%v_flux_bdry_val)
   deallocate(CS%umask, CS%vmask)
   deallocate(CS%u_face_mask_bdry, CS%v_face_mask_bdry)
   deallocate(CS%h_bdry_val)
   deallocate(CS%float_cond)
+  if (associated(CS%calve_mask)) deallocate(CS%calve_mask)
 
   deallocate(CS%ice_visc, CS%AGlen_visc)
   deallocate(CS%newton_visc_factor, CS%newton_str_ux, CS%newton_str_vy, CS%newton_str_sh)
@@ -4262,6 +4303,9 @@ subroutine ice_shelf_dyn_end(CS)
   deallocate(CS%t_bdry_val, CS%bed_elev)
   deallocate(CS%ground_frac, CS%ground_frac_rt)
   if (associated(CS%Jac)) deallocate(CS%Jac)
+  if (associated(CS%Phi)) deallocate(CS%Phi)
+  if (associated(CS%Phisub)) deallocate(CS%Phisub)
+  if (associated(CS%PhiC)) deallocate(CS%PhiC)
 
   deallocate(CS)
 
