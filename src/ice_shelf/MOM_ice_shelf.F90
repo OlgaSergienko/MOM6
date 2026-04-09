@@ -398,7 +398,7 @@ subroutine shelf_calc_flux(sfc_state_in, fluxes_in, Time, time_step_in, CS)
   time_step = time_step_in
   Itime_step = 1./time_step
 
-  dh_adott(:,:)=0.0; dh_bdott(:,:)=0.0
+  dh_adott(:,:)=0.0 ; dh_bdott(:,:)=0.0
   mass_hole_start=ISS%mass_hole
 
   if (CS%active_shelf_dynamics) then
@@ -1009,7 +1009,7 @@ subroutine shelf_calc_flux(sfc_state_in, fluxes_in, Time, time_step_in, CS)
 
   if (CS%shelf_mass_is_dynamic) &
     call write_ice_shelf_energy(CS%dCS, G, US, ISS%mass_shelf, ISS%area_shelf_h, Time, &
-                                time_step=real_to_time(US%T_to_s*time_step), mass_hole=ISS%mass_hole )
+                                time_step=real_to_time(time_step, unscale=US%T_to_s), mass_hole=ISS%mass_hole )
 
   if (CS%debug) call MOM_forcing_chksum("Before add shelf flux", fluxes, G, CS%US, haloshift=0)
 
@@ -1148,7 +1148,7 @@ function integrate_over_ice_sheet_area(G, ISS, var, unscale, hemisphere, on_PE_o
                                                 !! in arbitrary units [A L2 ~> a m2]
   integer, dimension(SZI_(G),SZJ_(G))  :: mask ! a mask for active cells depending on hemisphere indicated
   logical :: global_sum ! If true do the sum globally, but if false only do the sum on the current PE.
-  integer :: i,j
+  integer :: i, j
 
   if (present(hemisphere)) then
     IS_ID = hemisphere
