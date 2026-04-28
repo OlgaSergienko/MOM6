@@ -36,7 +36,7 @@ use MOM_restart,           only : register_restart_field, register_restart_pair
 use MOM_restart,           only : query_initialized, set_initialized, save_restart
 use MOM_restart,           only : only_read_from_restarts
 use MOM_restart,           only : restart_init, is_new_run, MOM_restart_CS
-use MOM_time_manager,      only : time_type, time_type_to_real, operator(+)
+use MOM_time_manager,      only : time_type, operator(+)
 use MOM_time_manager,      only : operator(-), operator(>), operator(*), operator(/)
 
 use MOM_ALE,                   only : ALE_CS, ALE_remap_velocities
@@ -668,7 +668,7 @@ subroutine step_MOM_dyn_split_RK2(u_inst, v_inst, h, tv, visc, Time_local, dt, f
   endif
 
   if (CS%BT_use_layer_fluxes) then
-    uh_ptr => uh_in ; vh_ptr => vh_in; u_ptr => u_inst ; v_ptr => v_inst
+    uh_ptr => uh_in ; vh_ptr => vh_in ; u_ptr => u_inst ; v_ptr => v_inst
   endif
 
   call cpu_clock_begin(id_clock_btstep)
@@ -1338,10 +1338,11 @@ subroutine remap_dyn_split_RK2_aux_vars(G, GV, CS, h_old_u, h_old_v, h_new_u, h_
     call ALE_remap_velocities(ALE_CSp, G, GV, h_old_u, h_old_v, h_new_u, h_new_v, CS%u_av, CS%v_av)
     call pass_vector(CS%u_av, CS%v_av, G%Domain, complete=.false.)
     call ALE_remap_velocities(ALE_CSp, G, GV, h_old_u, h_old_v, h_new_u, h_new_v, CS%CAu_pred, CS%CAv_pred)
-    call pass_vector(CS%CAu_pred, CS%CAv_pred, G%Domain, complete=.true.)
+    call pass_vector(CS%CAu_pred, CS%CAv_pred, G%Domain, complete=.false.)
   endif
 
   call ALE_remap_velocities(ALE_CSp, G, GV, h_old_u, h_old_v, h_new_u, h_new_v, CS%diffu, CS%diffv)
+  call pass_vector(CS%diffu, CS%diffv, G%Domain, complete=.true.)
 
 end subroutine remap_dyn_split_RK2_aux_vars
 
@@ -1457,7 +1458,7 @@ subroutine initialize_dyn_split_RK2(u, v, h, tv, uh, vh, eta, Time, G, GV, US, p
   if (nc<=0) CS%use_HA = .false.
   call get_param(param_file, mdl, "BE", CS%be, &
                  "If SPLIT is true, BE determines the relative weighting "//&
-                 "of a  2nd-order Runga-Kutta baroclinic time stepping "//&
+                 "of a 2nd-order Runga-Kutta baroclinic time stepping "//&
                  "scheme (0.5) and a backward Euler scheme (1) that is "//&
                  "used for the Coriolis and inertial terms.  BE may be "//&
                  "from 0.5 to 1, but instability may occur near 0.5. "//&
