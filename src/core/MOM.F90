@@ -303,7 +303,7 @@ type, public :: MOM_control_struct ; private
                                      !! number of dynamics steps in nstep_tot
   logical :: debug                   !< If true, write verbose checksums for debugging purposes.
   logical :: debug_OBCs              !< If true, write verbose OBC values for debugging purposes.
-  integer :: ntrunc                  !< number u,v truncations since last call to write_energy
+  integer :: ntrunc                  !< number u, v truncations since last call to write_energy
 
   integer :: cont_stencil            !< The stencil for thickness from the continuity solver.
   integer :: dyn_h_stencil           !< The stencil for thickness for the dynamics based on
@@ -597,7 +597,7 @@ subroutine step_MOM(forces_in, fluxes_in, sfc_state, Time_start, time_int_in, CS
 
   logical :: do_advection    ! If true, do tracer advection.
   logical :: do_diabatic     ! If true, do diabatic update.
-  logical :: thermo_does_span_coupling ! If true,thermodynamic (diabatic) forcing spans
+  logical :: thermo_does_span_coupling ! If true, thermodynamic (diabatic) forcing spans
                                        ! multiple coupling timesteps.
   logical :: tradv_does_span_coupling  ! If true, tracer advection spans
                                        ! multiple coupling timesteps.
@@ -681,6 +681,13 @@ subroutine step_MOM(forces_in, fluxes_in, sfc_state, Time_start, time_int_in, CS
   else
     forces => forces_in
     fluxes => fluxes_in
+  endif
+
+  ! With a dynamic ice shelf, synchronize the geometry used by ALE remapping
+  ! with the area fraction updated during shelf flux calculations.
+  if (associated(CS%frac_shelf_h)) then
+    if (associated(fluxes%frac_shelf_h)) &
+      CS%frac_shelf_h(:,:) = fluxes%frac_shelf_h(:,:)
   endif
 
   ! Homogenize the forces
@@ -2303,7 +2310,7 @@ end subroutine step_offline
 subroutine initialize_MOM(Time, Time_init, param_file, dirs, CS, &
                           Time_in, offline_tracer_mode, input_restart_file, diag_ptr, &
                           count_calls, tracer_flow_CSp,  ice_shelf_CSp, waves_CSp, ensemble_num, &
-                          calve_ice_shelf_bergs)
+                          calve_ice_shelf_bergs, fluxes_in)
   type(time_type), target,   intent(inout) :: Time        !< model time, set in this routine
   type(time_type),           intent(in)    :: Time_init   !< The start time for the coupled model's calendar
   type(param_file_type),     intent(out)   :: param_file  !< structure indicating parameter file to parse
@@ -2328,6 +2335,7 @@ subroutine initialize_MOM(Time, Time_init, param_file, dirs, CS, &
                                                           !! ensemble manager)
   logical, optional :: calve_ice_shelf_bergs !< If true, will add point iceberg calving variables to the ice
                                              !! shelf restart
+  type(forcing), optional, target, intent(inout) :: fluxes_in !< Surface thermodynamic and mass-flux forcing.
   ! local variables
   type(ocean_grid_type),  pointer :: G => NULL()    ! A pointer to the metric grid use for the run
   type(ocean_grid_type),  pointer :: G_in => NULL() ! Pointer to the input grid
@@ -3333,7 +3341,8 @@ subroutine initialize_MOM(Time, Time_init, param_file, dirs, CS, &
       ! when using an ice shelf. Passing the ice shelf diagnostics CS from MOM
       ! for legacy reasons. The actual ice shelf diag CS is internal to the ice shelf
       call initialize_ice_shelf(param_file, G, Time, ice_shelf_CSp, diag_ptr, &
-                                Time_init, dirs%output_directory, calve_ice_shelf_bergs=point_calving)
+                                Time_init, dirs%output_directory, fluxes_in=fluxes_in, &
+                                calve_ice_shelf_bergs=point_calving, defer_flux_initialization=.true.)
       allocate(frac_shelf_in(G_in%isd:G_in%ied, G_in%jsd:G_in%jed), source=0.0)
       allocate(mass_shelf_in(G_in%isd:G_in%ied, G_in%jsd:G_in%jed), source=0.0)
       allocate(CS%frac_shelf_h(isd:ied, jsd:jed), source=0.0)
@@ -3392,7 +3401,8 @@ subroutine initialize_MOM(Time, Time_init, param_file, dirs, CS, &
   else  ! The model is being run without grid rotation.  This is true of all production runs.
     if (use_ice_shelf) then
       call initialize_ice_shelf(param_file, G, Time, ice_shelf_CSp, diag_ptr, Time_init, &
-                               dirs%output_directory, calve_ice_shelf_bergs=point_calving)
+                                dirs%output_directory, fluxes_in=fluxes_in, &
+                                calve_ice_shelf_bergs=point_calving, defer_flux_initialization=.true.)
       allocate(CS%frac_shelf_h(isd:ied, jsd:jed), source=0.0)
       allocate(CS%mass_shelf(isd:ied, jsd:jed), source=0.0)
       call ice_shelf_query(ice_shelf_CSp,G,CS%frac_shelf_h, CS%mass_shelf)
