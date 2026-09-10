@@ -2974,6 +2974,36 @@ subroutine set_visc_register_restarts(HI, G, GV, US, param_file, visc, restart_C
                       hor_grid='Cv',z_grid='1')
     call register_restart_pair(visc%taux_shelf, visc%tauy_shelf, u_desc, v_desc, &
                                .false., restart_CS, conversion=US%RZ_T_to_kg_m2s*US%L_T_to_m_s)
+
+    ! Register the top boundary layer thickness and viscosity under ice shelves.
+    ! These are needed for bitwise-identical restarts because vertvisc_coef uses
+    ! them before the first call to set_viscous_ML has a chance to recompute them
+    ! from valid forces%frac_shelf_u/v (which may not be set until after the
+    ! first dynamics step in a restart run).
+    if (.not.allocated(visc%tbl_thick_shelf_u)) &
+      allocate(visc%tbl_thick_shelf_u(G%IsdB:G%IedB, G%jsd:G%jed), source=0.0)
+    if (.not.allocated(visc%tbl_thick_shelf_v)) &
+      allocate(visc%tbl_thick_shelf_v(G%isd:G%ied, G%JsdB:G%JedB), source=0.0)
+    if (.not.allocated(visc%kv_tbl_shelf_u)) &
+      allocate(visc%kv_tbl_shelf_u(G%IsdB:G%IedB, G%jsd:G%jed), source=0.0)
+    if (.not.allocated(visc%kv_tbl_shelf_v)) &
+      allocate(visc%kv_tbl_shelf_v(G%isd:G%ied, G%JsdB:G%JedB), source=0.0)
+    u_desc = var_desc("u_tbl_thick_shelf", "m", &
+                      "Viscous top boundary layer thickness under ice shelves at u-points", &
+                      hor_grid='Cu', z_grid='1')
+    v_desc = var_desc("v_tbl_thick_shelf", "m", &
+                      "Viscous top boundary layer thickness under ice shelves at v-points", &
+                      hor_grid='Cv', z_grid='1')
+    call register_restart_pair(visc%tbl_thick_shelf_u, visc%tbl_thick_shelf_v, u_desc, v_desc, &
+                               .false., restart_CS, conversion=US%Z_to_m)
+    u_desc = var_desc("u_kv_tbl_shelf", Kv_units, &
+                      "Viscosity in the top boundary layer under ice shelves at u-points", &
+                      hor_grid='Cu', z_grid='1')
+    v_desc = var_desc("v_kv_tbl_shelf", Kv_units, &
+                      "Viscosity in the top boundary layer under ice shelves at v-points", &
+                      hor_grid='Cv', z_grid='1')
+    call register_restart_pair(visc%kv_tbl_shelf_u, visc%kv_tbl_shelf_v, u_desc, v_desc, &
+                               .false., restart_CS, conversion=GV%HZ_T_to_MKS)
   endif
 
 end subroutine set_visc_register_restarts
