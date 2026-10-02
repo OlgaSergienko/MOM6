@@ -685,8 +685,7 @@ subroutine step_MOM(forces_in, fluxes_in, sfc_state, Time_start, time_int_in, CS
 
   ! With a dynamic ice shelf, synchronize the geometry used by ALE remapping
   ! with the area fraction updated during shelf flux calculations.
-  if (associated(CS%frac_shelf_h)) then
-    if (associated(fluxes%frac_shelf_h)) &
+  if (associated(CS%frac_shelf_h) .and. associated(fluxes%frac_shelf_h)) then
       CS%frac_shelf_h(:,:) = fluxes%frac_shelf_h(:,:)
   endif
 

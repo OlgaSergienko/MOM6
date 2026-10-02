@@ -2616,9 +2616,10 @@ subroutine initialize_ice_shelf_fluxes(CS, ocn_grid, US, fluxes_in)
   endif
 
   do j=jsd,jed ; do i=isd,ied
-    fluxes%frac_shelf_h(i,j) = 0.0
-    if (G%areaT(i,j)>0.) &
-      fluxes%frac_shelf_h(i,j) = min(1.0, CS%ISS%area_shelf_h(i,j) * G%IareaT(i,j))
+    fluxes%frac_shelf_h(i,j) = min(1.0, CS%ISS%area_shelf_h(i,j) * G%IareaT(i,j))
+ ! fluxes%frac_shelf_h(i,j) = 0.0
+ !   if (G%areaT(i,j)>0.) &
+ !     fluxes%frac_shelf_h(i,j) = min(1.0, CS%ISS%area_shelf_h(i,j) * G%IareaT(i,j))
   enddo ; enddo
   if (CS%debug) call hchksum(fluxes%frac_shelf_h, "IS init: frac_shelf_h", G%HI, haloshift=0)
   if (CS%debug) call hchksum(CS%ISS%mass_shelf, "IS init: mass_shelf (fluxes)", G%HI, haloshift=0, &
@@ -2918,7 +2919,7 @@ subroutine update_ice_SMB(CS, G, SMB, Time)
 end subroutine update_ice_SMB
 
 
-!> Save the ice shelf restart file
+!> Queries for presence of an ice shelf and whether a run uses data-override capabilities
 subroutine ice_shelf_query(CS, G, frac_shelf_h, mass_shelf, data_override_shelf_fluxes)
   type(ice_shelf_CS),         pointer    :: CS !< ice shelf control structure
   type(ocean_grid_type), intent(in)      :: G  !< A pointer to an ocean grid control structure.
@@ -2931,9 +2932,10 @@ subroutine ice_shelf_query(CS, G, frac_shelf_h, mass_shelf, data_override_shelf_
 
   if (present(frac_shelf_h)) then
     do j=G%jsd,G%jed ; do i=G%isd,G%ied
-      frac_shelf_h(i,j) = 0.0
-      if (G%areaT(i,j)>0.) &
-        frac_shelf_h(i,j) = min(1.0, CS%ISS%area_shelf_h(i,j) * G%IareaT(i,j))
+       frac_shelf_h(i,j) = min(1.0, CS%ISS%area_shelf_h(i,j) * G%IareaT(i,j))
+!      frac_shelf_h(i,j) = 0.0
+!      if (G%areaT(i,j)>0.) &
+!        frac_shelf_h(i,j) = min(1.0, CS%ISS%area_shelf_h(i,j) * G%IareaT(i,j))
     enddo ; enddo
   endif
 

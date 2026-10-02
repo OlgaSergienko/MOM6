@@ -459,8 +459,7 @@ subroutine register_ice_shelf_dyn_restarts(G, US, param_file, CS, restart_CS)
     allocate(CS%h_bdry_val(isd:ied,jsd:jed), source=0.0)
 
     ! Allocate running-total arrays for OD_av/ground_frac averaging under coupled grounding.
-    ! OD_rt is initialized to a default open-ocean depth (10 m) for new runs.
-    allocate(CS%OD_rt(isd:ied,jsd:jed), source=10.0*US%m_to_Z)
+    allocate(CS%OD_rt(isd:ied,jsd:jed), source=0.0*US%m_to_Z)
     allocate(CS%ground_frac_rt(isd:ied,jsd:jed), source=0.0)
 
     ! Create group pass handles
