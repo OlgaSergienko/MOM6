@@ -657,6 +657,8 @@ subroutine MOM_thermovar_chksum(mesg, tv, G, US)
     call hchksum(tv%salt_deficit, mesg//" tv%salt_deficit", G%HI, unscale=US%RZ_to_kg_m2*US%S_to_ppt)
   if (associated(tv%TempxPmE)) &
     call hchksum(tv%TempxPmE, mesg//" tv%TempxPmE", G%HI, unscale=US%RZ_to_kg_m2*US%C_to_degC)
+  if (associated(tv%internal_heat)) &
+    call hchksum(tv%internal_heat, mesg//" tv%internal_heat", G%HI, unscale=US%RZ_to_kg_m2*US%C_to_degC)
 end subroutine MOM_thermovar_chksum
 
 end module MOM_variables

@@ -7,6 +7,7 @@ module MOM_tracer_advect
 
 use MOM_cpu_clock,       only : cpu_clock_id, cpu_clock_begin, cpu_clock_end
 use MOM_cpu_clock,       only : CLOCK_MODULE, CLOCK_ROUTINE
+use MOM_debugging,       only : hchksum, uvchksum
 use MOM_diag_mediator,   only : post_data, query_averaging_enabled, diag_ctrl
 use MOM_diag_mediator,   only : register_diag_field, safe_alloc_ptr, time_type
 use MOM_domains,         only : sum_across_PEs, max_across_PEs
@@ -17,7 +18,7 @@ use MOM_grid,            only : ocean_grid_type
 use MOM_open_boundary,   only : ocean_OBC_type, OBC_NONE, OBC_DIRECTION_E
 use MOM_open_boundary,   only : OBC_DIRECTION_W, OBC_DIRECTION_N, OBC_DIRECTION_S
 use MOM_open_boundary,   only : OBC_segment_type
-use MOM_tracer_registry, only : tracer_registry_type, tracer_type
+use MOM_tracer_registry, only : tracer_registry_type, tracer_type, MOM_tracer_chkinv
 use MOM_unit_scaling,    only : unit_scale_type
 use MOM_verticalGrid,    only : verticalGrid_type
 use MOM_tracer_advect_schemes, only : ADVECT_PLM, ADVECT_PPMH3, ADVECT_PPM
@@ -38,6 +39,8 @@ type, public :: tracer_advect_CS ; private
   logical :: debug                 !< If true, write verbose checksums for debugging purposes.
   logical :: useHuynhStencilBug = .false. !< If true, use the incorrect stencil width.
                                    !! This is provided for compatibility with legacy simuations.
+  logical :: residual_bug          !< If true, allow online advection to discard remaining transports.
+  integer :: max_iterations        !< Safety limit for completing online tracer transport.
   type(group_pass_type) :: pass_uhr_vhr_t_hprev !< A structure used for group passes
   integer :: default_advect_scheme = -1 !< Determines which reconstruction to use
 end type tracer_advect_CS
@@ -99,6 +102,7 @@ subroutine advect_tracer(h_end, uhtr, vhtr, OBC, dt, G, GV, US, CS, Reg, x_first
   integer :: flux_type_ctrl        !< To allow setting a default value for flux_type
   real, dimension(SZI_(G),SZJ_(G),SZK_(GV)) :: &
     hprev           ! cell volume at the end of previous tracer change [H L2 ~> m3 or kg]
+  real, allocatable :: h_debug(:,:,:) ! Thickness used for inventory diagnostics [H ~> m or kg m-2].
   real, dimension(SZIB_(G),SZJ_(G),SZK_(GV)) :: &
     uhr             ! The remaining zonal thickness flux [H L2 ~> m3 or kg]
   real, dimension(SZI_(G),SZJB_(G),SZK_(GV)) :: &
@@ -113,6 +117,7 @@ subroutine advect_tracer(h_end, uhtr, vhtr, OBC, dt, G, GV, US, CS, Reg, x_first
   logical :: domore_u(SZJ_(G),SZK_(GV))  ! domore_u and domore_v indicate whether there is more
   logical :: domore_v(SZJB_(G),SZK_(GV)) ! advection to be done in the corresponding row or column.
   logical :: x_first            ! If true, advect in the x-direction first.
+  logical :: complete_transport ! If true, require online residual-flow transport to finish.
   logical :: advect_this_tracer(Reg%ntr) ! If true, advect the mth tracer. Diagnostics of advection due to the
                                        ! resolved and parameterized flow are collected by re-running the advection
                                        ! routines with different advecting fluxes without updating the tracer.
@@ -128,6 +133,7 @@ subroutine advect_tracer(h_end, uhtr, vhtr, OBC, dt, G, GV, US, CS, Reg, x_first
   integer :: IsdB, IedB, JsdB, JedB
   integer :: stencil_local          ! Stencil for the local adection scheme
   integer :: local_advect_scheme(Reg%ntr) ! contains the list of the advection for each tracer
+  character(len=256) :: mesg ! Message for fatal errors.
 
   domore_u(:,:) = .false.
   domore_v(:,:) = .false.
@@ -181,6 +187,9 @@ subroutine advect_tracer(h_end, uhtr, vhtr, OBC, dt, G, GV, US, CS, Reg, x_first
 
   flux_type_ctrl = 0
   if (present(flux_type)) flux_type_ctrl = flux_type ! default to residual flow
+  complete_transport = (.not.CS%residual_bug) .and. (flux_type_ctrl == 0) .and. &
+                       (.not.present(vol_prev)) .and. (.not.present(max_iter_in))
+  if (complete_transport) max_iter = max(max_iter, CS%max_iterations)
 
   call cpu_clock_begin(id_clock_pass)
   call create_group_pass(CS%pass_uhr_vhr_t_hprev, uhr, vhr, G%Domain)
@@ -272,6 +281,15 @@ subroutine advect_tracer(h_end, uhtr, vhtr, OBC, dt, G, GV, US, CS, Reg, x_first
   endif ! flux_type_ctrl
   !$OMP end parallel
 
+  if (CS%debug .and. (flux_type_ctrl == 0)) then
+    allocate(h_debug(isd:ied,jsd:jed,nz))
+    h_debug(:,:,:) = 0.0
+    do k=1,nz ; do j=js,je ; do i=is,ie
+      h_debug(i,j,k) = hprev(i,j,k)*G%IareaT(i,j)
+    enddo ; enddo ; enddo
+    call MOM_tracer_chkinv("Pre-advection reconstructed thickness", G, GV, h_debug, Reg)
+  endif
+
   isv = is ; iev = ie ; jsv = js ; jev = je
   nsten_halo = min(is - isd, ied - ie, js - jsd, jed - je) / stencil
 
@@ -284,7 +302,7 @@ subroutine advect_tracer(h_end, uhtr, vhtr, OBC, dt, G, GV, US, CS, Reg, x_first
       iev = ie + nsten_halo * stencil ; jev = je + nsten_halo * stencil
       ! Reevaluate domore_u & domore_v unless the valid range is the same size as
       ! before.  Also, do this if there is Strang splitting.
-      if ((nsten_halo > 1) .or. (itt==1)) then
+      if ((nsten_halo > 1) .or. (itt==1) .or. complete_transport) then
         !$OMP parallel do default(shared)
         do k=1,nz ; if (domore_k(k) > 0) then
           do j=jsv,jev ; if (.not.domore_u(j,k)) then
@@ -371,25 +389,64 @@ subroutine advect_tracer(h_end, uhtr, vhtr, OBC, dt, G, GV, US, CS, Reg, x_first
 
     !$OMP end parallel
 
-    ! If the advection just isn't finishing after max_iter, move on.
-    if (itt >= max_iter) then
-      exit
-    endif
-
-    ! Exit if there are no layers that need more iterations.
-    if (isv > is-stencil) then
-      do_any = 0
+    if (complete_transport) then
+      ! A dry donor can leave a residual without setting domore_u or domore_v.
+      ! Check the actual transports, not just the directional limiter flags.
+      do k=1,nz
+        domore_k(k) = 0
+        do j=js,je ; do I=is-1,ie
+          if (abs(uhr(I,j,k)) > uh_neglect(I,j)) domore_k(k) = 1
+        enddo ; enddo
+        do J=js-1,je ; do i=is,ie
+          if (abs(vhr(i,J,k)) > vh_neglect(i,J)) domore_k(k) = 1
+        enddo ; enddo
+      enddo ! k-loop
       call cpu_clock_begin(id_clock_sync)
       call sum_across_PEs(domore_k(:), nz)
       call cpu_clock_end(id_clock_sync)
+      do_any = 0
       do k=1,nz ; do_any = do_any + domore_k(k) ; enddo
-      if (do_any == 0) then
-        exit
+      if (do_any == 0) exit
+      if (itt >= max_iter) then
+        write(mesg,'(A,I0,A)') "MOM_tracer_advect.F90: advect_tracer: remaining transports after ", &
+            max_iter, " iterations; increase TRACER_ADVECTION_MAX_ITERATIONS or reduce DT_TRACER_ADVECT."
+        call MOM_error(FATAL, trim(mesg))
       endif
+    else
+      ! Preserve limited iterations and residual returns for legacy and offline calls.
+      if (itt >= max_iter) exit
 
+      ! Exit if there are no layers that need more iterations.
+      if (isv > is-stencil) then
+        do_any = 0
+        call cpu_clock_begin(id_clock_sync)
+        call sum_across_PEs(domore_k(:), nz)
+        call cpu_clock_end(id_clock_sync)
+        do k=1,nz ; do_any = do_any + domore_k(k) ; enddo
+        if (do_any == 0) then
+          exit
+        endif
+      endif
     endif
 
   enddo ! Iterations loop
+
+  if (CS%debug .and. (flux_type_ctrl == 0)) then
+    call uvchksum("Post-advection remaining transports", uhr, vhr, G%HI, &
+                  haloshift=0, unscale=GV%H_to_MKS*US%L_to_m**2)
+    do k=1,nz ; do j=js,je ; do i=is,ie
+      h_debug(i,j,k) = hprev(i,j,k)*G%IareaT(i,j)
+    enddo ; enddo ; enddo
+    call MOM_tracer_chkinv("Post-advection transported thickness", G, GV, h_debug, Reg)
+    call MOM_tracer_chkinv("Post-advection model thickness", G, GV, h_end, Reg)
+    do k=1,nz ; do j=js,je ; do i=is,ie
+      h_debug(i,j,k) = h_debug(i,j,k) - h_end(i,j,k)
+    enddo ; enddo ; enddo
+    call hchksum(h_debug, "Post-advection transported minus model thickness", G%HI, &
+                 haloshift=0, unscale=GV%H_to_MKS)
+    call MOM_tracer_chkinv("Post-advection inventory excess from thickness mismatch", G, GV, h_debug, Reg)
+    deallocate(h_debug)
+  endif
 
   if (present(uhr_out)) uhr_out(:,:,:) = uhr(:,:,:)
   if (present(vhr_out)) vhr_out(:,:,:) = vhr(:,:,:)
@@ -1276,6 +1333,7 @@ subroutine tracer_advect_init(Time, G, US, param_file, diag, CS)
 # include "version_variable.h"
   character(len=40)  :: mdl = "MOM_tracer_advect" ! This module's name.
   character(len=256) :: mesg    ! Message for error messages.
+  logical :: enable_bugs       ! If true, preserve legacy numerical behavior by default.
 
   if (associated(CS)) then
     call MOM_error(WARNING, "tracer_advect_init called with associated control structure.")
@@ -1290,6 +1348,17 @@ subroutine tracer_advect_init(Time, G, US, param_file, diag, CS)
   call get_param(param_file, mdl, "DT", CS%dt, fail_if_missing=.true., &
           desc="The (baroclinic) dynamics time step.", units="s", scale=US%s_to_T)
   call get_param(param_file, mdl, "DEBUG", CS%debug, default=.false.)
+  call get_param(param_file, mdl, "ENABLE_BUGS_BY_DEFAULT", enable_bugs, &
+          default=.true., do_not_log=.true.)
+  call get_param(param_file, mdl, "TRACER_ADVECT_RESIDUAL_BUG", CS%residual_bug, &
+          "If true, recover a bug that online tracer advection can discard remaining transports "//&
+          "and interpret tracer concentrations on inconsistent layer thicknesses.", default=enable_bugs)
+  call get_param(param_file, mdl, "TRACER_ADVECTION_MAX_ITERATIONS", CS%max_iterations, &
+          "Safety limit for completing online tracer transport when TRACER_ADVECT_RESIDUAL_BUG is false. "//&
+          "The limit is at least twice the number of dynamics steps plus one; unfinished transport is fatal.", &
+          default=1000, do_not_log=CS%residual_bug)
+  if (CS%max_iterations < 1) call MOM_error(FATAL, &
+      "MOM_tracer_advect.F90: tracer_advect_init: TRACER_ADVECTION_MAX_ITERATIONS must be positive.")
   call get_param(param_file, mdl, "TRACER_ADVECTION_SCHEME", mesg, &
           desc="The horizontal transport scheme for tracers:\n"//&
           trim(TracerAdvectionSchemeDoc), default='PLM')

@@ -7,6 +7,7 @@ module MOM_diabatic_driver
 
 use MOM_bulk_mixed_layer,    only : bulkmixedlayer, bulkmixedlayer_init, bulkmixedlayer_CS
 use MOM_debugging,           only : hchksum
+use MOM_tracer_registry,     only : MOM_tracer_chkinv
 use MOM_checksum_packages,   only : MOM_state_chksum, MOM_state_stats
 use MOM_cpu_clock,           only : cpu_clock_id, cpu_clock_begin, cpu_clock_end
 use MOM_cpu_clock,           only : CLOCK_MODULE_DRIVER, CLOCK_MODULE, CLOCK_ROUTINE
@@ -366,6 +367,8 @@ subroutine diabatic(u, v, h, tv, BLD, fluxes, visc, ADp, CDp, dt, Time_end, &
     call MOM_forcing_chksum("Start of diabatic", fluxes, G, US, haloshift=0)
   endif
   if (CS%debugConservation) call MOM_state_stats('Start of diabatic', u, v, h, tv%T, tv%S, G, GV, US)
+  if (CS%debug .and. associated(tv%tr_T) .and. associated(tv%tr_S)) &
+    call MOM_tracer_chkinv("Start-diabatic", G, GV, h, (/ tv%tr_T, tv%tr_S /), 2)
 
   if (CS%debug_energy_req) &
     call diapyc_energy_req_test(h, dt, tv, G, GV, US, CS%diapyc_en_rec_CSp)
@@ -400,6 +403,8 @@ subroutine diabatic(u, v, h, tv, BLD, fluxes, visc, ADp, CDp, dt, Time_end, &
     call disable_averaging(CS%diag)
   endif ! associated(tv%T) .AND. associated(tv%frazil)
   if (CS%debugConservation) call MOM_state_stats('1st make_frazil', u, v, h, tv%T, tv%S, G, GV, US)
+  if (CS%debug .and. associated(tv%tr_T) .and. associated(tv%tr_S)) &
+    call MOM_tracer_chkinv("After-first-frazil", G, GV, h, (/ tv%tr_T, tv%tr_S /), 2)
 
   if (CS%use_int_tides) then
     ! This block provides an interface for the unresolved low-mode internal tide module.
@@ -459,6 +464,8 @@ subroutine diabatic(u, v, h, tv, BLD, fluxes, visc, ADp, CDp, dt, Time_end, &
 
     if (showCallTree) call callTree_waypoint("done with 2nd make_frazil (diabatic)")
     if (CS%debugConservation) call MOM_state_stats('2nd make_frazil', u, v, h, tv%T, tv%S, G, GV, US)
+    if (CS%debug .and. associated(tv%tr_T) .and. associated(tv%tr_S)) &
+      call MOM_tracer_chkinv("After-final-frazil", G, GV, h, (/ tv%tr_T, tv%tr_S /), 2)
     call disable_averaging(CS%diag)
 
   endif  ! endif for frazil
@@ -697,6 +704,8 @@ subroutine diabatic_ALE_legacy(u, v, h, tv, BLD, fluxes, visc, ADp, CDp, dt, Tim
     call cpu_clock_end(id_clock_geothermal)
     if (showCallTree) call callTree_waypoint("geothermal (diabatic)")
     if (CS%debugConservation) call MOM_state_stats('geothermal', u, v, h, tv%T, tv%S, G, GV, US)
+    if (CS%debug .and. associated(tv%tr_T) .and. associated(tv%tr_S)) &
+      call MOM_tracer_chkinv("After-geothermal", G, GV, h, (/ tv%tr_T, tv%tr_S /), 2)
   endif
 
   ! Whenever thickness changes let the diag manager know, target grids
@@ -922,6 +931,8 @@ subroutine diabatic_ALE_legacy(u, v, h, tv, BLD, fluxes, visc, ADp, CDp, dt, Tim
 
   ! Apply forcing
   ! Changes made to following fields:  h, tv%T and tv%S.
+  if (CS%debug .and. associated(tv%tr_T) .and. associated(tv%tr_S)) &
+    call MOM_tracer_chkinv("Before-boundary-forcing", G, GV, h, (/ tv%tr_T, tv%tr_S /), 2)
   call cpu_clock_begin(id_clock_remap)
 
   if (CS%use_energetic_PBL) then
@@ -1014,6 +1025,8 @@ subroutine diabatic_ALE_legacy(u, v, h, tv, BLD, fluxes, visc, ADp, CDp, dt, Tim
   endif
   if (showCallTree) call callTree_waypoint("done with applyBoundaryFluxes (diabatic)")
   if (CS%debugConservation)  call MOM_state_stats('applyBoundaryFluxes', u, v, h, tv%T, tv%S, G, GV, US)
+  if (CS%debug .and. associated(tv%tr_T) .and. associated(tv%tr_S)) &
+    call MOM_tracer_chkinv("After-boundary-forcing", G, GV, h, (/ tv%tr_T, tv%tr_S /), 2)
 
   if (CS%debug) then
     call MOM_state_chksum("after negative check ", u, v, h, G, GV, US, haloshift=0)
@@ -1072,6 +1085,8 @@ subroutine diabatic_ALE_legacy(u, v, h, tv, BLD, fluxes, visc, ADp, CDp, dt, Tim
   endif  ! endif corresponding to if (associated(tv%T))
 
   if (CS%debugConservation) call MOM_state_stats('triDiagTS', u, v, h, tv%T, tv%S, G, GV, US)
+  if (CS%debug .and. associated(tv%tr_T) .and. associated(tv%tr_S)) &
+    call MOM_tracer_chkinv("After-vertical-diffusion", G, GV, h, (/ tv%tr_T, tv%tr_S /), 2)
 
   if (CS%debug) then
     call MOM_state_chksum("after mixed layer ", u, v, h, G, GV, US, haloshift=0)
@@ -1435,6 +1450,8 @@ subroutine diabatic_ALE(u, v, h, tv, BLD, fluxes, visc, ADp, CDp, dt, Time_end, 
     call cpu_clock_end(id_clock_geothermal)
     if (showCallTree) call callTree_waypoint("geothermal (diabatic)")
     if (CS%debugConservation) call MOM_state_stats('geothermal', u, v, h, tv%T, tv%S, G, GV, US)
+    if (CS%debug .and. associated(tv%tr_T) .and. associated(tv%tr_S)) &
+      call MOM_tracer_chkinv("After-geothermal", G, GV, h, (/ tv%tr_T, tv%tr_S /), 2)
   endif
 
   ! Whenever thickness changes let the diag manager know, target grids
@@ -1602,6 +1619,8 @@ subroutine diabatic_ALE(u, v, h, tv, BLD, fluxes, visc, ADp, CDp, dt, Time_end, 
 
   ! Apply forcing
   ! Changes made to following fields:  h, tv%T and tv%S.
+  if (CS%debug .and. associated(tv%tr_T) .and. associated(tv%tr_S)) &
+    call MOM_tracer_chkinv("Before-boundary-forcing", G, GV, h, (/ tv%tr_T, tv%tr_S /), 2)
   call cpu_clock_begin(id_clock_remap)
 
   if (CS%use_energetic_PBL) then
@@ -1677,6 +1696,8 @@ subroutine diabatic_ALE(u, v, h, tv, BLD, fluxes, visc, ADp, CDp, dt, Time_end, 
   endif
   if (showCallTree) call callTree_waypoint("done with applyBoundaryFluxes (diabatic)")
   if (CS%debugConservation)  call MOM_state_stats('applyBoundaryFluxes', u, v, h, tv%T, tv%S, G, GV, US)
+  if (CS%debug .and. associated(tv%tr_T) .and. associated(tv%tr_S)) &
+    call MOM_tracer_chkinv("After-boundary-forcing", G, GV, h, (/ tv%tr_T, tv%tr_S /), 2)
 
   if (showCallTree) call callTree_waypoint("done with h=ea-eb (diabatic)")
   if (CS%debugConservation) call MOM_state_stats('h=ea-eb', u, v, h, tv%T, tv%S, G, GV, US)
@@ -1739,6 +1760,8 @@ subroutine diabatic_ALE(u, v, h, tv, BLD, fluxes, visc, ADp, CDp, dt, Time_end, 
   endif  ! endif corresponding to if (associated(tv%T))
 
   if (CS%debugConservation) call MOM_state_stats('triDiagTS', u, v, h, tv%T, tv%S, G, GV, US)
+  if (CS%debug .and. associated(tv%tr_T) .and. associated(tv%tr_S)) &
+    call MOM_tracer_chkinv("After-vertical-diffusion", G, GV, h, (/ tv%tr_T, tv%tr_S /), 2)
 
   if (CS%debug) then
     call MOM_state_chksum("after mixed layer ", u, v, h, G, GV, US, haloshift=0)

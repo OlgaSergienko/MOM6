@@ -151,7 +151,7 @@ use MOM_tracer_hor_diff,       only : tracer_hordiff, tracer_hor_diff_init
 use MOM_tracer_hor_diff,       only : tracer_hor_diff_end, tracer_hor_diff_CS
 use MOM_tracer_registry,       only : tracer_registry_type, register_tracer, tracer_registry_init
 use MOM_tracer_registry,       only : register_tracer_diagnostics, post_tracer_diagnostics_at_sync
-use MOM_tracer_registry,       only : post_tracer_transport_diagnostics, MOM_tracer_chksum
+use MOM_tracer_registry,       only : post_tracer_transport_diagnostics, MOM_tracer_chksum, MOM_tracer_chkinv
 use MOM_tracer_registry,       only : post_tracer_integral_diagnostics
 use MOM_tracer_registry,       only : preALE_tracer_diagnostics, postALE_tracer_diagnostics
 use MOM_tracer_registry,       only : lock_tracer_registry, tracer_registry_end
@@ -1628,9 +1628,11 @@ subroutine step_MOM_tracer_dyn(CS, G, GV, US, h, Time_local)
   endif
 
   if (CS%debug) call MOM_tracer_chksum("Post-advect ", CS%tracer_Reg, G)
+  if (CS%debug) call MOM_tracer_chkinv("Post-advection", G, GV, h, CS%tracer_Reg)
   call tracer_hordiff(h, CS%t_dyn_rel_adv, CS%MEKE, CS%VarMix, CS%visc, G, GV, US, &
                       CS%tracer_diff_CSp, CS%tracer_Reg, CS%tv)
   if (CS%debug) call MOM_tracer_chksum("Post-diffuse ", CS%tracer_Reg, G)
+  if (CS%debug) call MOM_tracer_chkinv("Post-horizontal-diffusion", G, GV, h, CS%tracer_Reg)
   if (showCallTree) call callTree_waypoint("finished tracer advection/diffusion (step_MOM)")
   if (associated(CS%OBC)) then
     call pass_vector(CS%uhtr, CS%vhtr, G%Domain)
@@ -1918,6 +1920,7 @@ subroutine ALE_regridding_and_remapping(CS, G, GV, US, u, v, h, tv, dtdia, Time_
   endif
 
   if (CS%debug) then
+    call MOM_tracer_chkinv("Pre-ALE", G, GV, h, CS%tracer_Reg)
     call MOM_state_chksum("Pre-ALE ", u, v, h, CS%uh, CS%vh, G, GV, US, omit_corners=.true.)
     call hchksum(tv%T,"Pre-ALE T", G%HI, haloshift=1, omit_corners=.true., unscale=US%C_to_degC)
     call hchksum(tv%S,"Pre-ALE S", G%HI, haloshift=1, omit_corners=.true., unscale=US%S_to_ppt)
@@ -2001,6 +2004,7 @@ subroutine ALE_regridding_and_remapping(CS, G, GV, US, u, v, h, tv, dtdia, Time_
   call postALE_tracer_diagnostics(CS%tracer_Reg, G, GV, CS%diag, dtdia)
 
   if (CS%debug .and. CS%use_ALE_algorithm) then
+    call MOM_tracer_chkinv("Post-ALE", G, GV, h, CS%tracer_Reg)
     call MOM_state_chksum("Post-ALE ", u, v, h, CS%uh, CS%vh, G, GV, US, haloshift=0)
     call hchksum(tv%T, "Post-ALE T", G%HI, haloshift=0, unscale=US%C_to_degC)
     call hchksum(tv%S, "Post-ALE S", G%HI, haloshift=0, unscale=US%S_to_ppt)
