@@ -302,7 +302,7 @@ subroutine advect_tracer(h_end, uhtr, vhtr, OBC, dt, G, GV, US, CS, Reg, x_first
       iev = ie + nsten_halo * stencil ; jev = je + nsten_halo * stencil
       ! Reevaluate domore_u & domore_v unless the valid range is the same size as
       ! before.  Also, do this if there is Strang splitting.
-      if ((nsten_halo > 1) .or. (itt==1) .or. complete_transport) then
+      if ((nsten_halo > 1) .or. (itt==1)) then
         !$OMP parallel do default(shared)
         do k=1,nz ; if (domore_k(k) > 0) then
           do j=jsv,jev ; if (.not.domore_u(j,k)) then
@@ -345,7 +345,7 @@ subroutine advect_tracer(h_end, uhtr, vhtr, OBC, dt, G, GV, US, CS, Reg, x_first
         ! First, advect zonally.
         call advect_x(Reg%Tr, hprev, uhr, uh_neglect, OBC, domore_u, ntr, Idt, &
                       isv, iev, jsv-stencil, jev+stencil, k, G, GV, US, &
-                      flux_type_ctrl, advect_this_tracer, local_advect_scheme)
+                      flux_type_ctrl, advect_this_tracer, local_advect_scheme, complete_transport)
       endif ; enddo
 
       !$OMP do ordered
@@ -353,7 +353,7 @@ subroutine advect_tracer(h_end, uhtr, vhtr, OBC, dt, G, GV, US, CS, Reg, x_first
         !  Next, advect meridionally.
         call advect_y(Reg%Tr, hprev, vhr, vh_neglect, OBC, domore_v, ntr, Idt, &
                       isv, iev, jsv, jev, k, G, GV, US, flux_type_ctrl, advect_this_tracer, &
-                      local_advect_scheme)
+                      local_advect_scheme, complete_transport)
 
         ! Update domore_k(k) for the next iteration
         domore_k(k) = 0
@@ -369,7 +369,7 @@ subroutine advect_tracer(h_end, uhtr, vhtr, OBC, dt, G, GV, US, CS, Reg, x_first
         ! First, advect meridionally.
         call advect_y(Reg%Tr, hprev, vhr, vh_neglect, OBC, domore_v, ntr, Idt, &
                       isv-stencil, iev+stencil, jsv, jev, k, G, GV, US, &
-                      flux_type_ctrl, advect_this_tracer, local_advect_scheme)
+                      flux_type_ctrl, advect_this_tracer, local_advect_scheme, complete_transport)
       endif ; enddo
 
       !$OMP do ordered
@@ -377,7 +377,7 @@ subroutine advect_tracer(h_end, uhtr, vhtr, OBC, dt, G, GV, US, CS, Reg, x_first
         ! Next, advect zonally.
         call advect_x(Reg%Tr, hprev, uhr, uh_neglect, OBC, domore_u, ntr, Idt, &
                       isv, iev, jsv, jev, k, G, GV, US, flux_type_ctrl, advect_this_tracer, &
-                      local_advect_scheme)
+                      local_advect_scheme, complete_transport)
 
         ! Update domore_k(k) for the next iteration
         domore_k(k) = 0
@@ -389,9 +389,9 @@ subroutine advect_tracer(h_end, uhtr, vhtr, OBC, dt, G, GV, US, CS, Reg, x_first
 
     !$OMP end parallel
 
-    if (complete_transport) then
-      ! A dry donor can leave a residual without setting domore_u or domore_v.
-      ! Check the actual transports, not just the directional limiter flags.
+    if ((itt >= max_iter) .and. complete_transport) then
+      ! Check the remaining transports on the physical domain, since the halo values are not
+      ! necessarily current.  This global sum is only reached when the iterations are exhausted.
       do k=1,nz
         domore_k(k) = 0
         do j=js,je ; do I=is-1,ie
@@ -406,26 +406,25 @@ subroutine advect_tracer(h_end, uhtr, vhtr, OBC, dt, G, GV, US, CS, Reg, x_first
       call cpu_clock_end(id_clock_sync)
       do_any = 0
       do k=1,nz ; do_any = do_any + domore_k(k) ; enddo
-      if (do_any == 0) exit
-      if (itt >= max_iter) then
+      if (do_any /= 0) then
         write(mesg,'(A,I0,A)') "MOM_tracer_advect.F90: advect_tracer: remaining transports after ", &
             max_iter, " iterations; increase TRACER_ADVECTION_MAX_ITERATIONS or reduce DT_TRACER_ADVECT."
         call MOM_error(FATAL, trim(mesg))
       endif
-    else
-      ! Preserve limited iterations and residual returns for legacy and offline calls.
-      if (itt >= max_iter) exit
+      exit
+    endif
 
-      ! Exit if there are no layers that need more iterations.
-      if (isv > is-stencil) then
-        do_any = 0
-        call cpu_clock_begin(id_clock_sync)
-        call sum_across_PEs(domore_k(:), nz)
-        call cpu_clock_end(id_clock_sync)
-        do k=1,nz ; do_any = do_any + domore_k(k) ; enddo
-        if (do_any == 0) then
-          exit
-        endif
+    if (itt >= max_iter) exit
+
+    ! Exit if there are no layers that need more iterations.
+    if (isv > is-stencil) then
+      do_any = 0
+      call cpu_clock_begin(id_clock_sync)
+      call sum_across_PEs(domore_k(:), nz)
+      call cpu_clock_end(id_clock_sync)
+      do k=1,nz ; do_any = do_any + domore_k(k) ; enddo
+      if (do_any == 0) then
+        exit
       endif
     endif
 
@@ -463,7 +462,7 @@ end subroutine advect_tracer
 !! a monotonic piecewise linear scheme.
 subroutine advect_x(Tr, hprev, uhr, uh_neglect, OBC, domore_u, ntr, Idt, &
                     is, ie, js, je, k, G, GV, US, flux_type, advect_this_tracer,  &
-                    advect_schemes)
+                    advect_schemes, complete_transport)
   type(ocean_grid_type),                     intent(inout) :: G    !< The ocean's grid structure
   type(verticalGrid_type),                   intent(in)    :: GV   !< The ocean's vertical grid structure
   integer,                                   intent(in)    :: ntr  !< The number of tracers
@@ -489,6 +488,8 @@ subroutine advect_x(Tr, hprev, uhr, uh_neglect, OBC, domore_u, ntr, Idt, &
                                                                         !! or parameterized (= 2) flow
   logical, dimension(ntr),                   intent(in)    :: advect_this_tracer !< If true, advect this tracer
   integer, dimension(ntr),                   intent(in)    :: advect_schemes !< list of advection schemes to use
+  logical,                         optional, intent(in)    :: complete_transport !< If true, a remaining flux out of
+                                                                  !! a dry donor cell keeps domore set
 
   real, dimension(SZI_(G),ntr) :: &
     slope_x             ! The concentration slope per grid point [conc].
@@ -526,10 +527,12 @@ subroutine advect_x(Tr, hprev, uhr, uh_neglect, OBC, domore_u, ntr, Idt, &
   integer :: i, j, m, n, i_up, stencil, ntr_id
   type(OBC_segment_type), pointer :: segment=>NULL()
   logical, dimension(SZJ_(G),SZK_(GV)) :: domore_u_initial
+  logical :: keep_dry_donor ! If true, a remaining flux out of a dry donor sets domore_u.
 
   ! keep a local copy of the initial values of domore_u, which is to be used when computing ad2d_x
   ! diagnostic at the end of this subroutine.
   domore_u_initial = domore_u
+  keep_dry_donor = .false. ; if (present(complete_transport)) keep_dry_donor = complete_transport
 
   usePLMslope = .false.
   ! stencil for calculating slope values
@@ -632,6 +635,8 @@ subroutine advect_x(Tr, hprev, uhr, uh_neglect, OBC, domore_u, ntr, Idt, &
           ((uhr(I,j,k) > 0.0) .and. (hprev(i,j,k) <= tiny_h)) ) then
         uhh(I) = 0.0
         CFL(I) = 0.0
+        ! A residual flux out of a dry donor cell can be completed after other fluxes fill it.
+        if (keep_dry_donor .and. (uhr(I,j,k) /= 0.0)) domore_u(j,k) = .true.
       elseif (uhr(I,j,k) < 0.0) then
         hup = hprev(i+1,j,k) - G%areaT(i+1,j)*min_h
         hlos = MAX(0.0, uhr(I+1,j,k))
@@ -879,7 +884,7 @@ end subroutine advect_x
 !! linear scheme.
 subroutine advect_y(Tr, hprev, vhr, vh_neglect, OBC, domore_v, ntr, Idt, &
                     is, ie, js, je, k, G, GV, US, flux_type, advect_this_tracer, &
-                    advect_schemes)
+                    advect_schemes, complete_transport)
   type(ocean_grid_type),                     intent(inout) :: G    !< The ocean's grid structure
   type(verticalGrid_type),                   intent(in)    :: GV   !< The ocean's vertical grid structure
   integer,                                   intent(in)    :: ntr !< The number of tracers
@@ -905,6 +910,8 @@ subroutine advect_y(Tr, hprev, vhr, vh_neglect, OBC, domore_v, ntr, Idt, &
                                                                   !! or parameterized (= 2) flow
   logical, dimension(ntr),                   intent(in)    :: advect_this_tracer !< If true, advect this tracer
   integer, dimension(ntr),                   intent(in)    :: advect_schemes !< list of advection schemes to use
+  logical,                         optional, intent(in)    :: complete_transport !< If true, a remaining flux out of
+                                                                  !! a dry donor cell keeps domore set
 
   real, dimension(SZI_(G),ntr,SZJ_(G)) :: &
     slope_y                     ! The concentration slope per grid point [conc].
@@ -942,6 +949,7 @@ subroutine advect_y(Tr, hprev, vhr, vh_neglect, OBC, domore_v, ntr, Idt, &
   integer :: i, j, j2, m, n, j_up, stencil, ntr_id
   type(OBC_segment_type), pointer :: segment=>NULL()
   logical :: domore_v_initial(SZJB_(G)) ! Initial state of domore_v
+  logical :: keep_dry_donor ! If true, a remaining flux out of a dry donor sets domore_v.
 
   usePLMslope = .false.
   ! stencil for calculating slope values
@@ -971,6 +979,7 @@ subroutine advect_y(Tr, hprev, vhr, vh_neglect, OBC, domore_v, ntr, Idt, &
     if (domore_v(J,k)) then ; do j2=1-stencil,stencil ; do_j_tr(j+j2) = .true. ; enddo ; endif
   enddo
   domore_v_initial(:) = domore_v(:,k)
+  keep_dry_donor = .false. ; if (present(complete_transport)) keep_dry_donor = complete_transport
 
   ! Calculate the j-direction profiles (slopes) of each tracer that
   ! is being advected.
@@ -1062,6 +1071,8 @@ subroutine advect_y(Tr, hprev, vhr, vh_neglect, OBC, domore_v, ntr, Idt, &
           ((vhr(i,J,k) > 0.0) .and. (hprev(i,j,k) <= tiny_h)) ) then
         vhh(i,J) = 0.0
         CFL(i) = 0.0
+        ! A residual flux out of a dry donor cell can be completed after other fluxes fill it.
+        if (keep_dry_donor .and. (vhr(i,J,k) /= 0.0)) domore_v(J,k) = .true.
       elseif (vhr(i,J,k) < 0.0) then
         hup = hprev(i,j+1,k) - G%areaT(i,j+1)*min_h
         hlos = MAX(0.0, vhr(i,J+1,k))
