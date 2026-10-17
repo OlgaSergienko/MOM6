@@ -110,6 +110,7 @@ type, public :: regridding_CS ; private
 
   !> If true, call adjust_interface_motion() after initial grid generation
   logical :: use_adjust_interface_motion
+  logical :: hycom1_conservation_bug = .true. !< If true, retain HYCOM1 column thickness errors from roundoff.
 
   !> Reference pressure for potential density calculations [R L2 T-2 ~> Pa]
   real :: ref_pressure = 2.e7
@@ -1024,6 +1025,9 @@ subroutine initialize_regridding(CS, G, GV, US, max_depth, param_file, mdl, &
     call set_hycom_params(CS%hycom_CS, only_improves=tmpLogical)
     call get_param(param_file, mdl, "ENABLE_BUGS_BY_DEFAULT", enable_bugs, &
                    default=.true., do_not_log=.true.)  ! This is logged from MOM.F90.
+    call get_param(param_file, mdl, "HYCOM1_REGRID_CONSERVATION_BUG", CS%hycom1_conservation_bug, &
+              "If true, recover a bug that HYCOM1 regridding can change column thickness through "//&
+              "roundoff in boundary motion and clipping of negative layer thicknesses.", default=enable_bugs)
     call get_param(param_file, mdl, "HYCOM1_SHELF_DEPTH_BUG", tmpLogical, &
               "If true, recover a bug in which the nominal z* depths and the maximum interface depths "//&
               "of the HYCOM1 coordinate are measured from the sea surface instead of the top of the "//&
@@ -2307,6 +2311,9 @@ subroutine build_grid_HyCOM1( G, GV, US, h, nom_depth_H, tv, h_new, dzInterface,
 
       ! This adjusts things robust to round-off errors
       dz_col(:) = -dz_col(:)
+      if (.not.CS%hycom1_conservation_bug) then
+        dz_col(1) = 0.0 ; dz_col(CS%nk+1) = 0.0
+      endif
       if (CS%use_adjust_interface_motion) call adjust_interface_motion( CS, GV%ke, h(i,j,:), dz_col(:) )
 
       dzInterface(i,j,1:nki+1) = dz_col(1:nki+1)
@@ -2318,8 +2325,69 @@ subroutine build_grid_HyCOM1( G, GV, US, h, nom_depth_H, tv, h_new, dzInterface,
   enddo ; enddo ! i,j
 
   call calc_h_new_by_dz(CS, G, GV, h, dzInterface, h_new)
+  if (.not.CS%hycom1_conservation_bug) then
+    do j=G%jsc-1,G%jec+1 ; do i=G%isc-1,G%iec+1
+      if (G%mask2dT(i,j) > 0.0) then
+        call conserve_hycom1_thickness(GV%ke, h(i,j,:), CS%nk, h_new(i,j,:), nom_depth_H(i,j))
+        call dzint_from_h_col(GV%ke, h(i,j,:), CS%nk, h_new(i,j,:), dzInterface(i,j,:))
+        dzInterface(i,j,CS%nk+1) = 0.0
+      endif
+    enddo ; enddo
+  endif
 
 end subroutine build_grid_HyCOM1
+
+!> Remove roundoff-sized HYCOM1 column thickness errors before tracer remapping.
+subroutine conserve_hycom1_thickness(n_old, h_old, n_new, h_new, coordinate_depth)
+  integer, intent(in) :: n_old !< Number of source layers
+  real, intent(in) :: h_old(n_old) !< Source thicknesses [H ~> m or kg m-2]
+  integer, intent(in) :: n_new !< Number of destination layers
+  real, intent(inout) :: h_new(n_new) !< Nonnegative destination thicknesses [H ~> m or kg m-2]
+  real, optional, intent(in) :: coordinate_depth !< Nominal bottom depth, including shelf draft [H ~> m or kg m-2]
+  real :: dz(max(n_old,n_new)+1) ! Relative interface heights [H ~> m or kg m-2]
+  real :: old_column(max(n_old,n_new)) ! Source thicknesses with vanished layers [H ~> m or kg m-2]
+  real :: new_column(max(n_old,n_new)) ! Destination thicknesses with vanished layers [H ~> m or kg m-2]
+  real :: tolerance ! Maximum column discrepancy attributable to roundoff [H ~> m or kg m-2]
+  real :: correction ! Column thickness missing from the destination [H ~> m or kg m-2]
+  real :: depth_old, depth_new ! Accumulated source and destination thicknesses [H ~> m or kg m-2]
+  real :: depth_scale ! Depth scale of interface arithmetic [H ~> m or kg m-2]
+  character(len=256) :: mesg ! Description of a column conservation failure
+  integer :: k, k_thick, n
+
+  n = max(n_old,n_new)
+  old_column(:) = 0.0 ; new_column(:) = 0.0
+  old_column(1:n_old) = h_old(:) ; new_column(1:n_new) = h_new(:)
+  call dzint_from_h_col(n, old_column, n, new_column, dz)
+  correction = dz(n+1)
+  depth_old = 0.0 ; depth_new = 0.0
+  do k=1,n
+    depth_old = depth_old + old_column(k)
+    depth_new = depth_new + new_column(k)
+  enddo
+  ! Interface depths accumulate thicknesses and may include a large ice-shelf draft.
+  depth_scale = max(depth_old, depth_new)
+  if (present(coordinate_depth)) depth_scale = max(depth_scale, abs(coordinate_depth))
+  tolerance = (8.0*real(n)*epsilon(1.0)) * depth_scale
+  if (abs(correction) > tolerance) then
+    write(mesg,'(A,ES13.5,A,ES13.5)') &
+        "MOM_regridding.F90: conserve_hycom1_thickness: thickness error ", correction, &
+        " exceeds roundoff tolerance ", tolerance
+    call MOM_error(FATAL, trim(mesg))
+  endif
+
+  k_thick = 1
+  do k=2,n_new
+    if (h_new(k) > h_new(k_thick)) k_thick = k
+  enddo
+  if (h_new(k_thick) + correction < 0.0) then
+    write(mesg,'(A,ES13.5,A,ES13.5)') &
+        "MOM_regridding.F90: conserve_hycom1_thickness: correction ", correction, &
+        " would make destination thickness negative: ", h_new(k_thick)
+    call MOM_error(FATAL, trim(mesg))
+  endif
+  ! Use a thick layer so that removing a clipping error cannot drain a vanished layer.
+  h_new(k_thick) = h_new(k_thick) + correction
+end subroutine conserve_hycom1_thickness
 
 !> This subroutine builds an adaptive grid that follows density surfaces where
 !! possible, subject to constraints on the smoothness of interface heights.
@@ -3294,11 +3362,36 @@ logical function regridding_unit_tests(verbose)
   ! Local variables
   type(testing) :: test ! numerical_testing_type
   real :: dz(3) ! Change in interface depth [A]
+  real :: h_old(3), h_new(3), motion(4) ! Test thicknesses and interface displacements [H ~> m or kg m-2]
+  real :: eps ! Relative floating point spacing [nondim]
 
   call test%set( verbose=verbose ) ! While invoking the submodule tests, be quiet at this level
   call test%test( coord_zlike_unit_tests(verbose), 'coord_zlike unit tests')
 
   call test%test( dzint_from_h_col_unit_tests(verbose), 'dzint_from_h_col unit tests')
+  eps = epsilon(1.0)
+  h_old(:) = [1.0, eps, 1.0]
+  motion(:) = [0.0, 0.5, 0.5+2.0*eps, 0.0]
+  h_new(:) = max(0.0, h_old(:) + (motion(1:3) - motion(2:4)))
+  call conserve_hycom1_thickness(3, h_old, 3, h_new)
+  call dzint_from_h_col(3, h_old, 3, h_new, motion)
+  call test%real_arr(1, motion(4:4), [0.0], 'HYCOM1 clipped thin layer conserves column thickness')
+  call test%test(minval(h_new) < 0.0, 'HYCOM1 corrected thicknesses are nonnegative')
+
+  h_old(:) = [1.0, 2.0, 3.0]
+  h_new(:) = h_old(:)
+  call conserve_hycom1_thickness(3, h_old, 3, h_new)
+  call test%real_arr(3, h_new, h_old, 'HYCOM1 unchanged grid is preserved')
+
+  h_old(:) = 0.01 ; h_new(:) = h_old(:)
+  h_new(1) = h_new(1) + (4.0*eps)*4000.0
+  call conserve_hycom1_thickness(3, h_old, 3, h_new, coordinate_depth=4000.0)
+  call dzint_from_h_col(3, h_old, 3, h_new, motion)
+  call test%real_arr(1, motion(4:4), [0.0], 'HYCOM1 deep thin column conserves thickness')
+
+  h_old(:) = 0.0 ; h_new(:) = 0.0
+  call conserve_hycom1_thickness(3, h_old, 3, h_new)
+  call test%real_arr(3, h_new, h_old, 'HYCOM1 massless column is preserved')
 
   regridding_unit_tests = test%summarize('regridding_unit_tests') ! Return true if a fail occurred
 
