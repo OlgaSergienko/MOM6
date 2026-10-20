@@ -42,6 +42,7 @@ use MOM_io, only : slasher, fieldtype, vardesc, var_desc
 use MOM_io, only : close_file, SINGLE_FILE, MULTIPLE
 use MOM_restart, only : register_restart_field, save_restart
 use MOM_restart, only : restart_init, restore_state, MOM_restart_CS, register_restart_pair
+use MOM_restart, only : query_initialized
 use MOM_time_manager, only : time_type, time_to_real, real_to_time, operator(>), operator(-)
 use MOM_transcribe_grid, only : copy_dyngrid_to_MOM_grid, copy_MOM_grid_to_dyngrid
 use MOM_transcribe_grid, only : rotate_dyngrid
@@ -267,6 +268,8 @@ type, public :: ice_shelf_CS ; private
                                   !! until the next call to adjust_ice_sheet_frazil, used to avoid removing
                                   !! the ice-sheet's share of frazil from sfc_state%frazil twice for the
                                   !! same instant in time.
+  logical :: frazil_restored = .false. !< True while ISS%frazil contains the restored reservoir,
+                                  !! until the first shelf flux calculation has applied it.
 end type ice_shelf_CS
 
 !>@{ CPU time clock IDs
@@ -1112,6 +1115,7 @@ subroutine shelf_calc_flux(sfc_state_in, fluxes_in, Time, time_step_in, CS)
       enddo ; enddo
     endif
   endif
+  CS%frazil_restored = .false.
 
   call cpu_clock_end(id_clock_shelf)
 
@@ -1146,11 +1150,14 @@ subroutine adjust_ice_sheet_frazil(sfc_state_in, fluxes_in, CS)
   type(forcing), pointer :: fluxes => NULL()
   logical :: reduce_sfc_frazil ! If true, remove the ice-sheet's share of frazil from
                                ! sfc_state%frazil before it is sent onward to the sea-ice model.
+  logical :: add_sfc_frazil    ! If true, add sfc_state%frazil to the ice-sheet's frazil.
   integer :: i, j, is, ie, js, je
 
-  ! After a restart, ISS%frazil is reconstructed from the restored frazil state.
-  ! Do not remove the ice-sheet contribution from it a second time.
+  ! Initialization can extract and transfer the restored ocean surface state more than once.
+  ! Keep the restored shelf reservoir protected until shelf_calc_flux has applied it.
+  ! Do not remove the ice-sheet contribution from sfc_state%frazil on the first restart transfer.
   reduce_sfc_frazil = .not.CS%just_restarted
+  add_sfc_frazil = .not.CS%frazil_restored
   CS%just_restarted = .false.
 
   G => CS%grid ; ISS => CS%ISS
@@ -1172,7 +1179,7 @@ subroutine adjust_ice_sheet_frazil(sfc_state_in, fluxes_in, CS)
     !Copy frazil to the ice sheet module where ice sheet is present.
     !No scaling to account for partial ice-sheet cells is necessary here, as
     !this is taken care of when applied to the ice sheet.
-    if (fluxes%frac_shelf_h(i,j)>0.0) then
+    if ((fluxes%frac_shelf_h(i,j)>0.0) .and. add_sfc_frazil) then
       if (CS%frazil_refreeze_bug) then
         ISS%frazil(i,j) = sfc_state%frazil(i,j)
       else
@@ -2284,6 +2291,13 @@ subroutine initialize_ice_shelf(param_file, ocn_grid, Time, CS, diag, Time_init,
     endif
   endif
 
+  if (.not.CS%frazil_refreeze_bug) then
+    ! Frazil that could not yet be refrozen onto the ice shelf is carried between time steps.
+    call register_restart_field(ISS%frazil, "shelf_frazil", .false., CS%restart_CSp, &
+                                "Frazil heat awaiting refreezing onto the ice shelf", "J m-2", &
+                                conversion=US%Q_to_J_kg*US%RZ_to_kg_m2)
+  endif
+
   if (CS%active_shelf_dynamics) then
     call register_restart_field(ISS%hmask, "h_mask", .true., CS%restart_CSp, &
                                 "ice sheet/shelf thickness mask" ,"none")
@@ -2340,7 +2354,9 @@ subroutine initialize_ice_shelf(param_file, ocn_grid, Time, CS, diag, Time_init,
     ! This line calls a subroutine that reads the initial conditions from a restart file.
     call MOM_mesg("MOM_ice_shelf.F90, initialize_ice_shelf: Restoring ice shelf from file.")
     call restore_state(dirs%input_filename, dirs%restart_input_dir, Time, G, CS%restart_CSp)
-    ! ISS%frazil is reconstructed from sfc_state%frazil, not restored directly.
+    ! ISS%frazil is restored directly if available, or otherwise reconstructed from sfc_state%frazil.
+    if (.not.CS%frazil_refreeze_bug) &
+      CS%frazil_restored = query_initialized(ISS%frazil, "shelf_frazil", CS%restart_CSp)
     CS%just_restarted = .true.
 
   endif ! .not. new_sim
