@@ -46,7 +46,7 @@ use MOM_restart, only : query_initialized
 use MOM_time_manager, only : time_type, time_to_real, real_to_time, operator(>), operator(-)
 use MOM_transcribe_grid, only : copy_dyngrid_to_MOM_grid, copy_MOM_grid_to_dyngrid
 use MOM_transcribe_grid, only : rotate_dyngrid
-use MOM_unit_scaling, only : unit_scale_type, unit_scaling_init, fix_restart_unit_scaling
+use MOM_unit_scaling, only : unit_scale_type, unit_scaling_init
 use MOM_variables, only : surface, allocate_surface_state, deallocate_surface_state
 use MOM_variables, only : rotate_surface_state
 use MOM_forcing_type, only : forcing, allocate_forcing_type, deallocate_forcing_type, MOM_forcing_chksum
@@ -2400,8 +2400,6 @@ subroutine initialize_ice_shelf(param_file, ocn_grid, Time, CS, diag, Time_init,
   if (CS%shelf_mass_is_dynamic) &
     call initialize_ice_shelf_dyn(param_file, Time, ISS, CS%dCS, G, US, CS%diag, new_sim, CS%Cp_ice, &
     Time_init, directory, solo_ice_sheet_in)
-
-  call fix_restart_unit_scaling(US, unscaled=.true.)
 
   call get_param(param_file, mdl, "SAVE_INITIAL_CONDS", save_IC, &
                  "If true, save the ice shelf initial conditions.", default=.false.)
